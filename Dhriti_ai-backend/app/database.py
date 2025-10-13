@@ -25,6 +25,50 @@ def run_startup_migrations() -> None:
     """Apply lightweight schema adjustments so boot succeeds without manual SQL."""
 
     statements = [
+        "CREATE EXTENSION IF NOT EXISTS pgcrypto",
+        """
+        CREATE TABLE IF NOT EXISTS import_batch (
+          id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          original_file TEXT,
+          status        TEXT NOT NULL CHECK (status IN ('PENDING','RUNNING','COMPLETED','FAILED')) DEFAULT 'PENDING',
+          row_count     INT NOT NULL DEFAULT 0,
+          error_message TEXT,
+          created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS task (
+          id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          batch_id         UUID REFERENCES import_batch(id) ON DELETE SET NULL,
+          external_task_id TEXT,
+          task_name        TEXT NOT NULL,
+          file_name        TEXT,
+          s3_url           TEXT,
+          status           TEXT NOT NULL CHECK (status IN ('NEW','ASSIGNED','IN_PROGRESS','SUBMITTED','REVIEWED','REJECTED','DONE')) DEFAULT 'NEW',
+          priority         INT NOT NULL DEFAULT 5,
+          created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_task_batch ON task (batch_id)",
+        "CREATE INDEX IF NOT EXISTS idx_task_status ON task (status)",
+        """
+        CREATE TABLE IF NOT EXISTS task_question (
+          id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          task_id        UUID NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+          question_text  TEXT NOT NULL,
+          question_order INT NOT NULL DEFAULT 0
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_question_task ON task_question (task_id, question_order)",
+        """
+        CREATE TABLE IF NOT EXISTS task_option (
+          id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          question_id  UUID NOT NULL REFERENCES task_question(id) ON DELETE CASCADE,
+          option_text  TEXT NOT NULL,
+          option_order INT NOT NULL DEFAULT 0
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_option_question ON task_option (question_id, option_order)",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS description TEXT",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS data_category VARCHAR(255)",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS project_type VARCHAR(255)",
