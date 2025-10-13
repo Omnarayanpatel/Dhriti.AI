@@ -33,9 +33,11 @@ def run_startup_migrations() -> None:
           status        TEXT NOT NULL CHECK (status IN ('PENDING','RUNNING','COMPLETED','FAILED')) DEFAULT 'PENDING',
           row_count     INT NOT NULL DEFAULT 0,
           error_message TEXT,
-          created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+          created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+          excel_schema  JSONB
         )
         """,
+        "ALTER TABLE import_batch ADD COLUMN IF NOT EXISTS excel_schema JSONB",
         """
         CREATE TABLE IF NOT EXISTS task (
           id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -46,9 +48,11 @@ def run_startup_migrations() -> None:
           s3_url           TEXT,
           status           TEXT NOT NULL CHECK (status IN ('NEW','ASSIGNED','IN_PROGRESS','SUBMITTED','REVIEWED','REJECTED','DONE')) DEFAULT 'NEW',
           priority         INT NOT NULL DEFAULT 5,
-          created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+          created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+          payload          JSONB
         )
         """,
+        "ALTER TABLE task ADD COLUMN IF NOT EXISTS payload JSONB",
         "CREATE INDEX IF NOT EXISTS idx_task_batch ON task (batch_id)",
         "CREATE INDEX IF NOT EXISTS idx_task_status ON task (status)",
         """
@@ -82,6 +86,18 @@ def run_startup_migrations() -> None:
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS allow_reviewer_feedback BOOLEAN DEFAULT TRUE",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS reviewer_screen_mode VARCHAR(50) DEFAULT 'full'",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS reviewer_guidelines TEXT",
+        """
+        CREATE TABLE IF NOT EXISTS task_template (
+          id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          batch_id   UUID REFERENCES import_batch(id) ON DELETE SET NULL,
+          name       TEXT NOT NULL,
+          layout     JSONB NOT NULL,
+          rules      JSONB NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_task_template_batch ON task_template (batch_id)",
     ]
 
     with engine.begin() as connection:

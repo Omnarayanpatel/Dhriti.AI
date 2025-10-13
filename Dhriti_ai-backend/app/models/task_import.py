@@ -13,7 +13,7 @@ from sqlalchemy import (
     Text,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -45,8 +45,10 @@ class ImportBatch(Base):
     row_count = Column(Integer, nullable=False, default=0)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    excel_schema = Column(JSONB, nullable=True)
 
     tasks = relationship("ImportedTask", back_populates="batch")
+    templates = relationship("TaskTemplate", back_populates="batch")
 
     __table_args__ = (
         CheckConstraint(
@@ -73,6 +75,7 @@ class ImportedTask(Base):
     status = Column(String, nullable=False, default="NEW")
     priority = Column(Integer, nullable=False, default=5)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    payload = Column(JSONB, nullable=True)
 
     batch = relationship("ImportBatch", back_populates="tasks")
     questions = relationship("TaskQuestion", back_populates="task", cascade="all, delete-orphan")

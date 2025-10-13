@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from datetime import date, datetime
 from typing import Any, Dict, Iterable, List, Optional
 from uuid import uuid4
 
@@ -132,11 +133,14 @@ async def import_excel(file: UploadFile = File(...)):
                 detail="Missing required column: task_name",
             )
 
+        schema = _build_schema_from_dataframe(df)
+
         inserted = 0
 
         with session.begin():
             for _, row in df.iterrows():
                 row_data = _build_row_dict(row)
+                payload_data = _serialize_row(row_data)
 
                 raw_task_name = _get_first_value(row_data, "task_name")
                 if raw_task_name is None:
@@ -166,7 +170,8 @@ async def import_excel(file: UploadFile = File(...)):
                             file_name,
                             s3_url,
                             status,
-                            priority
+                            priority,
+                            payload
                         )
                         VALUES (
                             :id,
@@ -176,7 +181,8 @@ async def import_excel(file: UploadFile = File(...)):
                             :file_name,
                             :s3_url,
                             'NEW',
-                            5
+                            5,
+                            CAST(:payload AS JSONB)
                         )
                         """
                     ),
@@ -187,6 +193,7 @@ async def import_excel(file: UploadFile = File(...)):
                         "task_name": task_name,
                         "file_name": file_name,
                         "s3_url": s3_url,
+                        "payload": json.dumps(payload_data),
                     },
                 )
 
@@ -246,14 +253,14 @@ async def import_excel(file: UploadFile = File(...)):
                 text(
                     """
                     UPDATE import_batch
-                    SET status='COMPLETED', row_count=:row_count
+                    SET status='COMPLETED', row_count=:row_count, excel_schema=CAST(:schema AS JSONB)
                     WHERE id=:id
                     """
                 ),
-                {"row_count": inserted, "id": batch_id},
+                {"row_count": inserted, "id": batch_id, "schema": json.dumps(schema)},
             )
 
-        return {"ok": True, "batch_id": batch_id, "rows_imported": inserted}
+        return {"ok": True, "batch_id": batch_id, "rows_imported": inserted, "schema": schema}
 
     except HTTPException as exc:
         session.rollback()
@@ -300,10 +307,49 @@ def _normalize_key(name: str) -> str:
 
 def _build_row_dict(row: pd.Series) -> Dict[str, Any]:
     data: Dict[str, Any] = {}
+    counts: Dict[str, int] = {}
     for key, value in row.items():
         normalized = _normalize_key(str(key))
+        if normalized in data:
+            counts[normalized] = counts.get(normalized, 1) + 1
+            normalized = f"{normalized}_{counts[normalized]}"
+        else:
+            counts[normalized] = 1
         data[normalized] = value
     return data
+
+
+def _serialize_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: _coerce_for_json(value) for key, value in row.items()}
+
+
+def _coerce_for_json(value: Any) -> Any:
+    if _value_is_missing(value):
+        return None
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8")
+        except Exception:
+            return value.hex()
+    if isinstance(value, dict):
+        return {str(k): _coerce_for_json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_coerce_for_json(v) for v in value]
+    try:
+        import numpy as np  # type: ignore
+
+        if isinstance(value, (np.integer, np.floating, np.bool_)):
+            return value.item()
+    except Exception:
+        pass
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except Exception:
+            pass
+    return value
 
 
 def _get_first_value(data: Dict[str, Any], canonical: str) -> Optional[Any]:
@@ -311,8 +357,22 @@ def _get_first_value(data: Dict[str, Any], canonical: str) -> Optional[Any]:
     for alias in aliases:
         value = data.get(alias)
         if _value_is_missing(value):
-            continue
-        return value
+            idx = 2
+            resolved: Optional[Any] = None
+            while True:
+                suffixed_key = f"{alias}_{idx}"
+                if suffixed_key not in data:
+                    break
+                candidate = data.get(suffixed_key)
+                if not _value_is_missing(candidate):
+                    resolved = candidate
+                    break
+                idx += 1
+            if resolved is None or _value_is_missing(resolved):
+                continue
+            value = resolved
+        if not _value_is_missing(value):
+            return value
     return None
 
 
@@ -327,3 +387,26 @@ def _value_is_missing(value: Any) -> bool:
         return bool(pd.isna(value))
     except Exception:
         return False
+
+
+def _build_schema_from_dataframe(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    schema: List[Dict[str, Any]] = []
+    counts: Dict[str, int] = {}
+    for column in df.columns:
+        base_key = _normalize_key(str(column))
+        counts[base_key] = counts.get(base_key, 0) + 1
+        key = base_key if counts[base_key] == 1 else f"{base_key}_{counts[base_key]}"
+        sample_value = None
+        for value in df[column]:
+            if not _value_is_missing(value):
+                sample_value = _coerce_for_json(value)
+                break
+        schema.append(
+            {
+                "key": key,
+                "label": str(column),
+                "dtype": str(df[column].dtype),
+                "sample": None if sample_value is None else str(sample_value),
+            }
+        )
+    return schema
