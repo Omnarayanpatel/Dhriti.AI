@@ -10,6 +10,9 @@ import ProjectTaskBoard from './pages/ProjectTaskBoard.jsx';
 import ProtectedRoute from './components/ProtectedRoute';
 import HomeRedirect from './components/HomeRedirect.jsx';
 import JsonToExcel from './pages/JsonToExcel.jsx';
+import TaskImport from './pages/TaskImport.jsx';
+import TemplateBuilder from './pages/TemplateBuilder.jsx';
+import TaskTemplatePlayer from './pages/TaskTemplatePlayer.jsx';
 
 function App() {
   return (
@@ -77,6 +80,30 @@ function App() {
         element={
           <ProtectedRoute allowedRoles={['admin']}>
             <JsonToExcel />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tools/template-builder"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <TemplateBuilder />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/templates/:templateId/play"
+        element={
+          <ProtectedRoute allowedRoles={['user', 'expert', 'vendor', 'admin']}>
+            <TaskTemplatePlayer />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tools/task-import"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <TaskImport />
           </ProtectedRoute>
         }
       />

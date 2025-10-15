@@ -10,3 +10,16 @@ body,
 body {
     @apply font-inter bg-slate-50 text-slate-900;
 }
+
+body.canvas-only .app .left,
+body.canvas-only .app .right {
+    display: none !important;
+}
+
+body.canvas-only .app {
+    grid-template-columns: 1fr !important;
+}
+
+body.canvas-only .app .stage {
+    height: calc(100vh - 56px) !important;
+}

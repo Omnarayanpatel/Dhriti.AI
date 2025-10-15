@@ -49,7 +49,18 @@ function Sidebar() {
               </div>
             </details>
           )}
-          {userRole === 'admin' && navItem({ to: '/tools/json-to-excel', label: 'JSON → Excel' })}
+          {userRole === 'admin' && (
+            <details className="group">
+              <summary className="list-none cursor-pointer">
+                <div className="flex items-center gap-3 px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100">Tools</div>
+              </summary>
+              <div className="mt-1 ml-4 space-y-1">
+                {navItem({ to: '/tools/task-import', label: 'Upload Tasks' })}
+                {navItem({ to: '/tools/template-builder', label: 'Template Builder' })}
+                {navItem({ to: '/tools/json-to-excel', label: 'JSON → Excel' })}
+              </div>
+            </details>
+          )}
           {navItem({ to: '/projects', label: 'Projects' })}
           {navItem({ to: '/login', label: 'Logout' })}
         </nav>

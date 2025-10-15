@@ -98,6 +98,24 @@ def run_startup_migrations() -> None:
         )
         """,
         "CREATE INDEX IF NOT EXISTS idx_task_template_batch ON task_template (batch_id)",
+        """
+        CREATE TABLE IF NOT EXISTS project_tasks (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          task_id TEXT NOT NULL,
+          task_name TEXT NOT NULL,
+          file_name TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'NEW',
+          payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE(project_id, task_id),
+          CHECK (jsonb_typeof(payload) = 'object')
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_project_tasks_project_id ON project_tasks(project_id)",
+        "CREATE INDEX IF NOT EXISTS idx_project_tasks_created_at ON project_tasks(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_project_tasks_payload_gin ON project_tasks USING GIN (payload jsonb_path_ops)",
     ]
 
     with engine.begin() as connection:
