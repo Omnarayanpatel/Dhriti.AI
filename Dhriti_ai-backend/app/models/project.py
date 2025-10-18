@@ -43,6 +43,9 @@ class Project(Base):
     reviews = relationship(
         "TaskReview", back_populates="project", cascade="all, delete-orphan"
     )
+    templates = relationship(
+        "ProjectTemplate", back_populates="project", cascade="all, delete-orphan"
+    )
 
 
 class ProjectAssignment(Base):

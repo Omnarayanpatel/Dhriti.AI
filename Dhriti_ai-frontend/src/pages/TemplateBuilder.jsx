@@ -39,6 +39,11 @@ const PRESETS = {
   Submit: { w: 200, h: 70, props: { label: 'Submit' } },
 };
 
+const DATA_MODES = Object.freeze({
+  BATCH: 'batch',
+  PROJECT: 'project',
+});
+
 const DEFAULT_SAMPLE_ROW = `{
   "task_id":"T-101",
   "task_name":"Label Vehicle",
@@ -168,8 +173,11 @@ function uid() {
 }
 
 function TemplateBuilderApp() {
-  const [sources, setSources] = useState([]);
-  const [selectedSource, setSelectedSource] = useState('');
+  const [dataMode, setDataMode] = useState(DATA_MODES.PROJECT);
+  const [batchSources, setBatchSources] = useState([]);
+  const [projectSources, setProjectSources] = useState([]);
+  const [selectedBatchId, setSelectedBatchId] = useState('');
+  const [selectedProjectId, setSelectedProjectId] = useState('');
   const [availableFields, setAvailableFields] = useState([]);
   const [sourceLoading, setSourceLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -218,12 +226,12 @@ function TemplateBuilderApp() {
   const historyRef = useRef([]);
   const redoStackRef = useRef([]);
 
-  const refreshSources = useCallback(async () => {
+  const refreshBatchSources = useCallback(async () => {
     const token = getToken();
     if (!token) {
       setSourceError('Session expired. Please log in again.');
-      setSources([]);
-      setSelectedSource('');
+      setBatchSources([]);
+      setSelectedBatchId('');
       setAvailableFields([]);
       setSampleRow(DEFAULT_SAMPLE_ROW);
       return;
@@ -249,8 +257,8 @@ function TemplateBuilderApp() {
         throw new Error(detail);
       }
       const list = Array.isArray(payload) ? payload : [];
-      setSources(list);
-      setSelectedSource(prev => {
+      setBatchSources(list);
+      setSelectedBatchId(prev => {
         if (prev && list.some(item => item.batch_id === prev)) {
           return prev;
         }
@@ -267,12 +275,66 @@ function TemplateBuilderApp() {
     }
   }, []);
 
-  useEffect(() => {
-    refreshSources();
-  }, [refreshSources]);
+  const refreshProjectSources = useCallback(async () => {
+    const token = getToken();
+    if (!token) {
+      setSourceError('Session expired. Please log in again.');
+      setProjectSources([]);
+      setSelectedProjectId('');
+      setAvailableFields([]);
+      setSampleRow(DEFAULT_SAMPLE_ROW);
+      return;
+    }
+
+    setSourceLoading(true);
+    setSourceError('');
+
+    try {
+      const response = await fetch(`${API_BASE}/tasks/admin/project-template-sources`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch (error) {
+        payload = null;
+      }
+      if (!response.ok) {
+        const detail = payload?.detail || 'Failed to load project template sources.';
+        throw new Error(detail);
+      }
+      const list = Array.isArray(payload) ? payload : [];
+      setProjectSources(list);
+      setSelectedProjectId(prev => {
+        if (prev && list.some(item => String(item.project_id) === String(prev))) {
+          return prev;
+        }
+        return list.length > 0 ? String(list[0].project_id) : '';
+      });
+      if (list.length === 0) {
+        setAvailableFields([]);
+        setSampleRow(DEFAULT_SAMPLE_ROW);
+      }
+    } catch (error) {
+      setSourceError(error instanceof Error ? error.message : 'Unable to load project template sources.');
+    } finally {
+      setSourceLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    if (!selectedSource) {
+    if (dataMode === DATA_MODES.BATCH) {
+      refreshBatchSources();
+    } else {
+      refreshProjectSources();
+    }
+  }, [dataMode, refreshBatchSources, refreshProjectSources]);
+
+  useEffect(() => {
+    const selection = dataMode === DATA_MODES.BATCH ? selectedBatchId : selectedProjectId;
+    if (!selection) {
       setAvailableFields([]);
       setSampleRow(DEFAULT_SAMPLE_ROW);
       return;
@@ -290,7 +352,11 @@ function TemplateBuilderApp() {
       setDetailLoading(true);
       setSourceError('');
       try {
-        const response = await fetch(`${API_BASE}/tasks/admin/template-sources/${selectedSource}`, {
+        const endpoint =
+          dataMode === DATA_MODES.BATCH
+            ? `${API_BASE}/tasks/admin/template-sources/${selection}`
+            : `${API_BASE}/tasks/admin/project-template-sources/${selection}`;
+        const response = await fetch(endpoint, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -326,7 +392,7 @@ function TemplateBuilderApp() {
     fetchDetail();
 
     return () => controller.abort();
-  }, [selectedSource]);
+  }, [dataMode, selectedBatchId, selectedProjectId]);
 
   const snapshot = useCallback(
     () =>
@@ -447,7 +513,7 @@ function TemplateBuilderApp() {
 
   useEffect(() => {
     setSaveBanner(null);
-  }, [selectedSource]);
+  }, [dataMode, selectedBatchId, selectedProjectId]);
 
   useEffect(() => {
     const block = blocks.find(item => item.id === admComp);
@@ -722,9 +788,15 @@ function TemplateBuilderApp() {
     return Math.max(900, maxBottom + 800);
   }, [blocks]);
 
-  const activeSource = useMemo(
-    () => sources.find(item => item.batch_id === selectedSource) || null,
-    [sources, selectedSource],
+  const activeBatch = useMemo(
+    () => batchSources.find(item => item.batch_id === selectedBatchId) || null,
+    [batchSources, selectedBatchId],
+  );
+
+  const activeProject = useMemo(
+    () =>
+      projectSources.find(item => String(item.project_id) === String(selectedProjectId)) || null,
+    [projectSources, selectedProjectId],
   );
 
   const addRule = () => {
@@ -744,7 +816,7 @@ function TemplateBuilderApp() {
       if (!column) {
         setSaveBanner({
           type: 'error',
-          message: 'No Excel columns available. Import a dataset and select it before binding.',
+          message: 'No data fields available. Import or select a dataset before binding.',
           templateId: null,
         });
         return;
@@ -778,10 +850,10 @@ function TemplateBuilderApp() {
     if (savingTemplate) {
       return;
     }
-    if (!selectedSource) {
+    if (!selectedProjectId) {
       setSaveBanner({
         type: 'error',
-        message: 'Select an imported Excel batch before saving the template.',
+        message: 'Select a project before saving the template.',
         templateId: null,
       });
       return;
@@ -808,7 +880,7 @@ function TemplateBuilderApp() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          batch_id: selectedSource,
+          project_id: Number(selectedProjectId),
           name: templateName.trim() || 'Untitled Template',
           layout: layoutPayload,
           rules: rulesPayload,
@@ -844,7 +916,7 @@ function TemplateBuilderApp() {
     } finally {
       setSavingTemplate(false);
     }
-  }, [adminRules, blocks, savingTemplate, selectedSource, templateName]);
+  }, [adminRules, blocks, savingTemplate, selectedProjectId, templateName]);
 
   const exportProfile = () => {
     const data = JSON.stringify({ blocks, rules: adminRules }, null, 2);
@@ -857,6 +929,14 @@ function TemplateBuilderApp() {
   };
 
   const inputProps = inputStyle();
+  const canSaveTemplate = Boolean(selectedProjectId);
+  const saveButtonDisabled = savingTemplate || !canSaveTemplate;
+  const saveButtonTitle = (() => {
+    if (!selectedProjectId) {
+      return 'Select a project to enable saving';
+    }
+    return 'Save template to backend';
+  })();
 
   return (
     <div style={styles.app} className="app">
@@ -902,13 +982,13 @@ function TemplateBuilderApp() {
             style={{
               ...buttonStyle,
               ...primaryButtonStyle,
-              opacity: savingTemplate || !selectedSource ? 0.6 : 1,
-              cursor: savingTemplate || !selectedSource ? 'not-allowed' : 'pointer',
+              opacity: saveButtonDisabled ? 0.6 : 1,
+              cursor: saveButtonDisabled ? 'not-allowed' : 'pointer',
             }}
             onClick={handleSaveTemplate}
             type="button"
-            disabled={savingTemplate || !selectedSource}
-            title={selectedSource ? 'Save template to backend' : 'Select a data source to enable saving'}
+            disabled={saveButtonDisabled}
+            title={saveButtonTitle}
           >
             {savingTemplate ? 'Saving…' : 'Save Template'}
           </button>
@@ -1025,22 +1105,68 @@ function TemplateBuilderApp() {
           ) : null}
 
           <div style={{ display: 'grid', gap: 8, margin: '12px 0' }}>
-            <label>
-              Data source (Excel batch)
-              <select
-                value={selectedSource}
-                onChange={event => setSelectedSource(event.target.value)}
-                style={inputProps}
-                disabled={sourceLoading}
-              >
-                <option value="">Select a batch…</option>
-                {sources.map(source => (
-                  <option key={source.batch_id} value={source.batch_id}>
-                    {`${source.original_file || source.batch_id} · ${source.row_count} rows`}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <fieldset style={{ border: 'none', padding: 0, margin: 0 }}>
+              <legend style={{ ...mutedStyle, marginBottom: 6 }}>Data mode</legend>
+              <div style={{ display: 'flex', gap: 16 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input
+                    type="radio"
+                    name="data-mode"
+                    value={DATA_MODES.PROJECT}
+                    checked={dataMode === DATA_MODES.PROJECT}
+                    onChange={() => setDataMode(DATA_MODES.PROJECT)}
+                  />
+                  Project tasks
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input
+                    type="radio"
+                    name="data-mode"
+                    value={DATA_MODES.BATCH}
+                    checked={dataMode === DATA_MODES.BATCH}
+                    onChange={() => setDataMode(DATA_MODES.BATCH)}
+                  />
+                  Imported batch
+                </label>
+              </div>
+            </fieldset>
+
+            {dataMode === DATA_MODES.BATCH ? (
+              <label>
+                Imported batch
+                <select
+                  value={selectedBatchId}
+                  onChange={event => setSelectedBatchId(event.target.value)}
+                  style={inputProps}
+                  disabled={sourceLoading}
+                >
+                  <option value="">Select a batch…</option>
+                  {batchSources.map(source => (
+                    <option key={source.batch_id} value={source.batch_id}>
+                      {`${source.original_file || source.batch_id} · ${source.row_count} rows`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label>
+                Project data
+                <select
+                  value={selectedProjectId}
+                  onChange={event => setSelectedProjectId(event.target.value)}
+                  style={inputProps}
+                  disabled={sourceLoading}
+                >
+                  <option value="">Select a project…</option>
+                  {projectSources.map(source => (
+                    <option key={source.project_id} value={String(source.project_id)}>
+                      {`${source.project_name} · ${source.total_tasks} tasks`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <button
                 style={{
@@ -1049,22 +1175,35 @@ function TemplateBuilderApp() {
                   cursor: sourceLoading ? 'not-allowed' : 'pointer',
                 }}
                 type="button"
-                onClick={refreshSources}
+                onClick={dataMode === DATA_MODES.BATCH ? refreshBatchSources : refreshProjectSources}
                 disabled={sourceLoading}
               >
                 {sourceLoading ? 'Refreshing…' : 'Refresh list'}
               </button>
-              {detailLoading ? <span style={mutedStyle}>Loading schema…</span> : null}
+              {detailLoading ? <span style={mutedStyle}>Loading fields…</span> : null}
             </div>
-            {activeSource ? (
+
+            {dataMode === DATA_MODES.BATCH ? (
+              activeBatch ? (
+                <div style={mutedStyle}>
+                  {(activeBatch.original_file || 'Imported batch')} · {activeBatch.row_count} rows · Status: {activeBatch.status}
+                </div>
+              ) : (
+                <div style={mutedStyle}>
+                  Upload the task Excel via the Task Import tool, then refresh this list.
+                </div>
+              )
+            ) : activeProject ? (
               <div style={mutedStyle}>
-                {(activeSource.original_file || 'Imported batch')} · {activeSource.row_count} rows · Status: {activeSource.status}
+                {activeProject.project_name} · {activeProject.total_tasks} tasks · Latest task{' '}
+                {activeProject.latest_task_at ? new Date(activeProject.latest_task_at).toLocaleString() : '—'}
               </div>
             ) : (
               <div style={mutedStyle}>
-                Upload the task Excel via the Task Import tool, then refresh this list.
+                Import or ingest task data for a project, then refresh this list.
               </div>
             )}
+
             {sourceError ? <div style={errorStyle}>{sourceError}</div> : null}
           </div>
 
@@ -1113,7 +1252,7 @@ function TemplateBuilderApp() {
                   checked={admSrcKind === 'EXCEL_COLUMN'}
                   onChange={() => setAdmSrcKind('EXCEL_COLUMN')}
                 />
-                {' Excel column'}
+                {' Data field'}
               </label>
               <label>
                 <input
@@ -1130,7 +1269,7 @@ function TemplateBuilderApp() {
 
           {admSrcKind === 'EXCEL_COLUMN' ? (
             <label>
-              Excel column
+              Data field
               <select
                 value={admExcelCol}
                 onChange={event => setAdmExcelCol(event.target.value)}
@@ -1138,7 +1277,7 @@ function TemplateBuilderApp() {
                 disabled={availableFields.length === 0}
               >
                 {availableFields.length === 0 ? (
-                  <option value="">No columns detected</option>
+                  <option value="">No fields detected</option>
                 ) : (
                   availableFields.map(header => (
                     <option key={header} value={header}>

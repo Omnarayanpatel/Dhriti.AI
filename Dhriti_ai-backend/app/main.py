@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import app.models.project_task  # noqa: F401
 import app.models.task_import  # noqa: F401
-import app.models.task_template  # noqa: F401
+import app.models.project_template  # noqa: F401
 from app.database import Base, engine, run_startup_migrations
 from app.routes import auth, batches, dashboard, protected, task_ingest, tasks, template_builder, users
 

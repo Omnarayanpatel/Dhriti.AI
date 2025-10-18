@@ -3,8 +3,19 @@ import { NavLink } from 'react-router-dom';
 import { getUserRole } from '../utils/auth';
 
 function Sidebar() {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(() => {
+    if (typeof window === 'undefined') {
+      return true;
+    }
+    return window.innerWidth >= 768;
+  });
   const userRole = getUserRole();
+
+  const handleNavClick = () => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setOpen(false);
+    }
+  };
 
   const navItem = ({ to, label }) => (
     <NavLink
@@ -12,7 +23,7 @@ function Sidebar() {
       className={({ isActive }) =>
         `flex items-center gap-3 px-4 py-2 rounded-lg transition hover:bg-slate-100 ${isActive ? 'bg-slate-100 text-brand-700' : 'text-slate-700'}`
       }
-      onClick={() => setOpen(false)}
+      onClick={handleNavClick}
     >
       <span>{label}</span>
     </NavLink>
@@ -29,12 +40,29 @@ function Sidebar() {
         <button onClick={() => setOpen((v) => !v)} className="p-2 rounded-lg hover:bg-slate-100">☰</button>
       </div>
 
-      {/* Sidebar */}
-      <div className={`md:sticky md:top-0 md:h-screen md:w-64 w-full bg-white border-r border-slate-200 p-4 space-y-4 ${open ? 'block' : 'hidden md:block'}`}>
-        <div className="hidden md:flex items-center gap-2 px-2">
+      {/* Desktop header */}
+      <div className="hidden md:flex sticky top-0 z-20 items-center justify-between bg-white border-b border-slate-200 px-4 py-3">
+        <div className="flex items-center gap-2">
           <div className="w-9 h-9 rounded-lg bg-brand-600 text-white grid place-items-center font-bold">D</div>
           <span className="font-semibold">Dhriti.AI</span>
         </div>
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="flex items-center justify-center w-10 h-10 rounded-lg border border-slate-200 hover:bg-slate-50 transition text-lg"
+          type="button"
+        >
+          {open ? '⏴' : '⏵'}
+        </button>
+      </div>
+
+      {/* Sidebar */}
+      <div
+        className={`transition-all duration-200 bg-white md:min-h-screen md:sticky md:top-[64px] ${
+          open
+            ? 'w-full md:w-64 border-r border-slate-200 p-4 space-y-4 block'
+            : 'hidden md:hidden w-full md:w-0 border-r border-transparent p-0 space-y-0'
+        }`}
+      >
         <nav className="space-y-1">
           {navItem({ to: '/dashboard', label: 'Dashboard' })}
           {userRole === 'admin' && (
