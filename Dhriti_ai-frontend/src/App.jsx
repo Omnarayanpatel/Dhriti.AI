@@ -107,6 +107,15 @@ function App() {
           </ProtectedRoute>
         }
       />
+      {/* Task Template Player Route */}
+      <Route
+        path="/templates/:templateId/play"
+        element={
+          <ProtectedRoute allowedRoles={['user', 'expert', 'vendor', 'admin']}>
+            <TaskTemplatePlayer />
+          </ProtectedRoute>
+        }
+        />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

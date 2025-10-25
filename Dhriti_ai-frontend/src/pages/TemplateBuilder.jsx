@@ -37,6 +37,36 @@ const PRESETS = {
   },
   Timer: { w: 200, h: 80, props: { duration: 60 } },
   Submit: { w: 200, h: 70, props: { label: 'Submit' } },
+  RadioButtons: {
+    w: 460,
+    h: 120,
+    props: { options: ['Option 1', 'Option 2'], selected: null },
+  },
+  Checkbox: {
+    w: 460,
+    h: 120,
+    props: { options: ['Check 1', 'Check 2'], selected: [] },
+  },
+  WorkingTimer: {
+    w: 200,
+    h: 80,
+    props: { duration: 60, running: false },
+  },
+  Text: {
+    w: 400,
+    h: 100,
+    props: { content: 'Enter your text here' },
+  },
+  Questions: {
+    w: 460,
+    h: 140,
+    props: { question: 'What is your question?', options: ['Option 1', 'Option 2'], selected: null },
+  },
+  Comments: {
+    w: 460,
+    h: 120,
+    props: { placeholder: 'Add your comment here...', value: '' },
+  },
 };
 
 const DATA_MODES = Object.freeze({
@@ -494,6 +524,11 @@ function TemplateBuilderApp() {
     if (type === 'Submit') return ['label'];
     if (type === 'Timer') return ['duration'];
     if (type === 'Options4' || type === 'Options5') return ['source'];
+    if (type === 'RadioButtons' || type === 'Checkbox') return ['options'];
+    if (type === 'WorkingTimer') return ['duration', 'running'];
+    if (type === 'Text') return ['content'];
+    if (type === 'Questions') return ['question'];
+    if (type === 'Comments') return ['placeholder', 'value'];
     return [];
   }, []);
 
@@ -770,6 +805,12 @@ function TemplateBuilderApp() {
           if (block.id !== id) {
             return block;
           }
+          if (block.type === 'Checkbox') {
+            const selected = block.props.selected.includes(index)
+              ? block.props.selected.filter(i => i !== index)
+              : [...block.props.selected, index];
+            return { ...block, props: { ...block.props, selected } };
+          }
           const current = block.props.selected;
           const next = current === index ? null : index;
           return { ...block, props: { ...block.props, selected: next } };
@@ -1019,6 +1060,24 @@ function TemplateBuilderApp() {
             </button>
             <button style={buttonStyle} onClick={() => addBlock('Submit')} type="button">
               + Submit
+            </button>
+            <button style={{ ...buttonStyle, background: '#4ade80' }} onClick={() => addBlock('RadioButtons')} type="button">
+              + Radio Buttons
+            </button>
+            <button style={{ ...buttonStyle, background: '#60a5fa' }} onClick={() => addBlock('Checkbox')} type="button">
+              + Checkbox
+            </button>
+            <button style={{ ...buttonStyle, background: '#f87171' }} onClick={() => addBlock('WorkingTimer')} type="button">
+              + Working Timer
+            </button>
+            <button style={{ ...buttonStyle, background: '#fbbf24' }} onClick={() => addBlock('Text')} type="button">
+              + Text
+            </button>
+            <button style={{ ...buttonStyle, background: '#a78bfa' }} onClick={() => addBlock('Questions')} type="button">
+              + Questions
+            </button>
+            <button style={{ ...buttonStyle, background: '#fca5a5' }} onClick={() => addBlock('Comments')} type="button">
+              + Comments
             </button>
           </div>
           <div style={{ ...mutedStyle, marginTop: 8 }}>
@@ -1453,6 +1512,24 @@ function BlockView({
     }
   }
 
+  const radioOptions =
+    block.type === 'RadioButtons' ? block.props.options : null;
+  const checkboxOptions =
+    block.type === 'Checkbox' ? block.props.options : null;
+  const workingTimer =
+    block.type === 'WorkingTimer'
+      ? { duration: block.props.duration, running: block.props.running }
+      : null;
+  const textContent = block.type === 'Text' ? block.props.content : null;
+  const questionData =
+    block.type === 'Questions'
+      ? { question: block.props.question }
+      : null;
+  const commentData =
+    block.type === 'Comments'
+      ? { placeholder: block.props.placeholder, value: block.props.value }
+      : null;
+
   return (
     <div style={baseStyle} onMouseDown={onMouseDown}>
       {block.type === 'Title' ? (
@@ -1530,6 +1607,37 @@ function BlockView({
           })}
         </div>
       ) : null}
+      {block.type === 'RadioButtons' ? (
+        <div style={{ ...styles.options, gridTemplateColumns: '1fr' }}>
+          {radioOptions.map((option, index) => (
+            <label key={index} style={{ ...styles.opt, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="radio"
+                name={`radio-${block.id}`}
+                checked={block.props.selected === index}
+                onChange={() => onToggleOption(block.id, index)}
+                style={{ cursor: 'pointer' }}
+              />
+              {option}
+            </label>
+          ))}
+        </div>
+      ) : null}
+      {block.type === 'Checkbox' ? (
+        <div style={{ ...styles.options, gridTemplateColumns: '1fr' }}>
+          {checkboxOptions.map((option, index) => (
+            <label key={index} style={{ ...styles.opt, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={block.props.selected.includes(index)}
+                onChange={() => onToggleOption(block.id, index)}
+                style={{ cursor: 'pointer' }}
+              />
+              {option}
+            </label>
+          ))}
+        </div>
+      ) : null}
       {block.type === 'Submit' ? (
         <div
           style={{
@@ -1566,6 +1674,84 @@ function BlockView({
           {formatSeconds(duration || 60)}
         </div>
       ) : null}
+      {block.type === 'WorkingTimer' ? (
+        <div
+          style={{
+            display: 'grid',
+            placeItems: 'center',
+            height: '100%',
+            fontVariantNumeric: 'tabular-nums',
+            fontSize: 26,
+          }}
+        >
+          {formatSeconds(workingTimer.duration)}
+          <button
+            style={{ marginTop: 8, ...buttonStyle, background: workingTimer.running ? '#34d399' : '#fca5a5' }}
+            onClick={() => {
+              setBlocks(prev =>
+                prev.map(b =>
+                  b.id === block.id
+                    ? {
+                        ...b,
+                        props: {
+                          ...b.props,
+                          running: !b.props.running,
+                        },
+                      }
+                    : b,
+                ),
+              );
+            }}
+          >
+            {workingTimer.running ? 'Pause' : 'Start'}
+          </button>
+        </div>
+      ) : null}
+      {block.type === 'Text' ? (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center', 
+            height: '100%',
+            padding: 10,
+            fontSize: 16,
+            textAlign: 'center',
+          }}
+        >
+          {textContent}
+        </div>
+      ) : null}
+      {block.type === 'Questions' ? (
+        <div style={{ padding: 10 }}>
+          <div style={{ fontWeight: 600 }}>{questionData.question}</div>
+        </div>
+      ) : null}
+      {block.type === 'Comments' ? (
+        <input
+          type="text"
+          placeholder={commentData.placeholder}
+          value={commentData.value}
+          onChange={event => {
+            setBlocks(prev =>
+              prev.map(b =>
+                b.id === block.id
+                  ? { ...b, props: { ...b.props, value: event.target.value } }
+                  : b,
+              ),
+            );
+          }}
+          style={{
+            width: '100%',
+            height: '100%',
+            padding: 10,
+            border: '1px solid #1f2a44',
+            borderRadius: 10,
+            background: '#0d1830',
+            color: '#eaf1ff',
+          }}
+        />
+      ) : null}
       {selected
         ? ['nw', 'ne', 'sw', 'se'].map(direction => (
             <div
@@ -1595,6 +1781,11 @@ function Inspector({ block, onChange }) {
   const [src, setSrc] = useState(block.props.src || '');
   const [label, setLabel] = useState(block.props.label || '');
   const [duration, setDuration] = useState(block.props.duration || 60);
+  const [options, setOptions] = useState(block.props.options || []);
+  const [content, setContent] = useState(block.props.content || '');
+  const [question, setQuestion] = useState(block.props.question || '');
+  const [placeholder, setPlaceholder] = useState(block.props.placeholder || '');
+  const [value, setValue] = useState(block.props.value || '');
 
   useEffect(() => {
     setX(block.frame.x);
@@ -1605,6 +1796,11 @@ function Inspector({ block, onChange }) {
     setSrc(block.props.src || '');
     setLabel(block.props.label || '');
     setDuration(block.props.duration || 60);
+    setOptions(block.props.options || []);
+    setContent(block.props.content || '');
+    setQuestion(block.props.question || '');
+    setPlaceholder(block.props.placeholder || '');
+    setValue(block.props.value || '');
   }, [block]);
 
   const muted = { color: '#9fb0d8', fontSize: 12 };
@@ -1616,6 +1812,11 @@ function Inspector({ block, onChange }) {
 
   const handlePropChange = (prop, value) => {
     onChange({ ...block, props: { ...block.props, [prop]: value } });
+  };
+
+  const handleOptionsChange = newOptions => {
+    setOptions(newOptions);
+    onChange({ ...block, props: { ...block.props, options: newOptions } });
   };
 
   return (
@@ -1711,6 +1912,66 @@ function Inspector({ block, onChange }) {
             handlePropChange('duration', value);
           }}
         />
+      ) : null}
+
+      {block.type === 'RadioButtons' || block.type === 'Checkbox' ? (
+        <LabeledText
+          label="Options (comma-separated)"
+          value={options.join(', ')}
+          onChange={value =>
+            handleOptionsChange(value.split(',').map(opt => opt.trim()))
+          }
+        />
+      ) : null}
+
+      {block.type === 'WorkingTimer' ? (
+        <LabeledNumber
+          label="Duration (s)"
+          value={block.props.duration}
+          onChange={value =>
+            onChange({ ...block, props: { ...block.props, duration: value } })
+          }
+        />
+      ) : null}
+
+      {block.type === 'Text' ? (
+        <LabeledText
+          label="Content"
+          value={content}
+          onChange={value => {
+            setContent(value);
+            onChange({ ...block, props: { ...block.props, content: value } });
+          }}
+        />
+      ) : null}
+      {block.type === 'Questions' ? (
+        <LabeledText
+          label="Question"
+          value={block.props.question}
+          onChange={value =>
+            onChange({ ...block, props: { ...block.props, question: value } })
+          }
+        />
+      ) : null}
+      {block.type === 'Comments' ? (
+        <>
+          <LabeledText
+            label="Placeholder"
+            value={placeholder}
+            onChange={value => {
+              setPlaceholder(value);
+              onChange({ ...block, props: { ...block.props, placeholder: value } });
+            }}
+          />
+          <LabeledText
+            label="Comment Value"
+            value={value}
+            onChange={value => {
+              setValue(value);
+              onChange({ ...block, props: { ...block.props, value: value } });
+            }}
+          />
+        </>
       ) : null}
     </div>
   );

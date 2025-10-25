@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import UUID
 from typing import List, Optional, Literal
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -14,6 +15,7 @@ class AssignedProject(BaseModel):
     completed_tasks: int
     pending_tasks: int
     status: str
+    template_id: Optional[UUID] = None
 
     model_config = ConfigDict(from_attributes=True)
 

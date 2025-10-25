@@ -10,6 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app import database
+from app.models.project_template import ProjectTemplate
 from app.models.project import Project, ProjectAssignment, TaskReview
 from app.models.user import User
 from app.routes.protected import get_current_user
@@ -55,14 +56,36 @@ def get_tasks_dashboard(
         .subquery()
     )
 
+    # Subquery to get the latest template_id for each project
+    latest_template_subquery = (
+        db.query(
+            ProjectTemplate.project_id,
+            func.max(ProjectTemplate.created_at).label("max_created_at"),
+        )
+        .group_by(ProjectTemplate.project_id)
+        .subquery()
+    )
+
+    template_id_subquery = (
+        db.query(ProjectTemplate.id, ProjectTemplate.project_id)
+        .join(
+            latest_template_subquery,
+            (ProjectTemplate.project_id == latest_template_subquery.c.project_id)
+            & (ProjectTemplate.created_at == latest_template_subquery.c.max_created_at),
+        )
+        .subquery()
+    )
+
     assignment_rows = (
         db.query(
             ProjectAssignment,
             Project,
             reviews_avg_subquery.c.avg_rating,
+            template_id_subquery.c.id.label("template_id"),
         )
         .join(Project, ProjectAssignment.project_id == Project.id)
         .outerjoin(reviews_avg_subquery, reviews_avg_subquery.c.project_id == Project.id)
+        .outerjoin(template_id_subquery, template_id_subquery.c.project_id == Project.id)
         .filter(ProjectAssignment.user_id == user.id)
         .all()
     )
@@ -71,7 +94,7 @@ def get_tasks_dashboard(
     total_completed = 0
     total_pending = 0
 
-    for assignment, project, avg_rating in assignment_rows:
+    for assignment, project, avg_rating, template_id in assignment_rows:
         avg_minutes = assignment.avg_task_time_minutes
         if avg_minutes is None:
             avg_minutes = project.default_avg_task_time_minutes
@@ -90,6 +113,7 @@ def get_tasks_dashboard(
                 completed_tasks=assignment.completed_tasks or 0,
                 pending_tasks=assignment.pending_tasks or 0,
                 status=assignment.status or project.status or "Active",
+                template_id=template_id,
             )
         )
 

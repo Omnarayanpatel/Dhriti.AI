@@ -16,7 +16,7 @@ const PAGE_LIMIT = 40;
 const runtimeStyles = {
   shell: {
     borderRadius: 24,
-    border: '1px solid #1f2a44',
+    border: '1px solidrgb(238, 240, 246)',
     background: 'linear-gradient(180deg,#0e162a,#0b1528)',
     padding: 24,
     overflow: 'auto',
@@ -362,7 +362,7 @@ function TaskTemplatePlayer() {
                 </div>
               </div>
 
-              {schema.length > 0 ? (
+             {/* {schema.length > 0 ? (
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                   <div className="text-sm font-medium text-slate-700">Excel schema</div>
                   <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
@@ -377,7 +377,7 @@ function TaskTemplatePlayer() {
                     ))}
                   </div>
                 </div>
-              ) : null}
+              ) : null} */}
             </div>
           ) : null}
         </div>
