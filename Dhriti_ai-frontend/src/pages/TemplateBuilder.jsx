@@ -58,14 +58,19 @@ const PRESETS = {
     props: { content: 'Enter your text here' },
   },
   Questions: {
-    w: 460,
-    h: 140,
-    props: { question: 'What is your question?', options: ['Option 1', 'Option 2'], selected: null },
+    w: 580,
+    h: 150,
+    props: { question: 'Rate the quality of the response', selected: null },
   },
   Comments: {
     w: 460,
     h: 120,
     props: { placeholder: 'Add your comment here...', value: '' },
+  },
+  Discard: {
+    w: 300,
+    h: 100,
+    props: {},
   },
 };
 
@@ -1079,6 +1084,13 @@ function TemplateBuilderApp() {
             <button style={{ ...buttonStyle, background: '#fca5a5' }} onClick={() => addBlock('Comments')} type="button">
               + Comments
             </button>
+            <button
+              style={{ ...buttonStyle, background: '#f87171' }}
+              onClick={() => addBlock('Discard')}
+              type="button"
+            >
+              + Discard
+            </button>
           </div>
           <div style={{ ...mutedStyle, marginTop: 8 }}>
             Tips: Select → Delete, Arrow keys to nudge, Shift+Arrow = 10px
@@ -1482,23 +1494,23 @@ function BlockView({
 
   const titleText =
     block.type === 'Title'
-      ? resolve('text', block.props.text ?? '')
+      ? resolve('text', block.props?.text ?? '')
       : null;
   const imageSrc =
     block.type === 'Image'
-      ? resolve('src', block.props.src ?? '')
+      ? resolve('src', block.props?.src ?? '')
       : null;
   const audioSrc =
     block.type === 'Audio'
-      ? resolve('src', block.props.src ?? '')
+      ? resolve('src', block.props?.src ?? '')
       : null;
   const buttonLabel =
     block.type === 'Submit'
-      ? resolve('label', block.props.label ?? 'Submit')
+      ? resolve('label', block.props?.label ?? 'Submit')
       : null;
   const duration =
     block.type === 'Timer'
-      ? Number(resolve('duration', block.props.duration ?? 60))
+      ? Number(resolve('duration', block.props?.duration ?? 60))
       : null;
 
   let optionsFromBinding = null;
@@ -1513,22 +1525,26 @@ function BlockView({
   }
 
   const radioOptions =
-    block.type === 'RadioButtons' ? block.props.options : null;
+    block.type === 'RadioButtons' ? resolve('options', block.props?.options) : null;
   const checkboxOptions =
-    block.type === 'Checkbox' ? block.props.options : null;
+    block.type === 'Checkbox' ? resolve('options', block.props?.options) : null;
   const workingTimer =
     block.type === 'WorkingTimer'
-      ? { duration: block.props.duration, running: block.props.running }
+      ? { duration: resolve('duration', block.props?.duration), running: resolve('running', block.props?.running) }
       : null;
-  const textContent = block.type === 'Text' ? block.props.content : null;
+  const textContent = block.type === 'Text' ? resolve('content', block.props?.content) : null;
   const questionData =
     block.type === 'Questions'
-      ? { question: block.props.question }
+      ? { question: resolve('question', block.props?.question), options: ['Excellent', 'Good', 'Fair', 'Poor', 'Bad'] }
       : null;
+
   const commentData =
     block.type === 'Comments'
-      ? { placeholder: block.props.placeholder, value: block.props.value }
+      ? { placeholder: resolve('placeholder', block.props?.placeholder), value: resolve('value', block.props?.value) }
       : null;
+
+  const [rating, setRating] = useState(null);
+  const [discard, setDiscard] = useState(false);
 
   return (
     <div style={baseStyle} onMouseDown={onMouseDown}>
@@ -1723,24 +1739,64 @@ function BlockView({
         </div>
       ) : null}
       {block.type === 'Questions' ? (
-        <div style={{ padding: 10 }}>
-          <div style={{ fontWeight: 600 }}>{questionData.question}</div>
+        <div
+          style={{
+            border: '1px solid #1f2a44',
+            borderRadius: '14px',
+            padding: '16px',
+            boxShadow: '0 6px 16px rgba(0,0,0,.25)',
+            background: 'rgba(14,22,42,.92)',
+          }}
+        >
+          <div
+            style={{
+              fontWeight: '600',
+              marginBottom: '8px',
+              color: '#eaf1ff',
+            }}
+          >
+            {questionData.question}
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: '12px',
+            }}
+          >
+            {questionData.options.map(opt => (
+              <label
+                key={opt}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '12px',
+                  border: `1px solid ${rating === opt ? '#34d399' : '#1f2a44'}`,
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  background: rating === opt ? 'rgba(52,211,153,0.1)' : 'rgba(14,22,42,.65)',
+                  transition: 'opacity 0.2s ease',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.opacity = '0.9')}
+                onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+              >
+                <input
+                  type="radio"
+                  name={`question-${block.id}`}
+                  value={opt}
+                  checked={rating === opt}
+                  onChange={() => setRating(opt)}
+                  style={{ marginRight: '8px' }}
+                />
+                <span style={{ fontSize: '14px', color: '#eaf1ff' }}>{opt}</span>
+              </label>
+            ))}
+          </div>
         </div>
       ) : null}
       {block.type === 'Comments' ? (
-        <input
-          type="text"
-          placeholder={commentData.placeholder}
-          value={commentData.value}
-          onChange={event => {
-            setBlocks(prev =>
-              prev.map(b =>
-                b.id === block.id
-                  ? { ...b, props: { ...b.props, value: event.target.value } }
-                  : b,
-              ),
-            );
-          }}
+        <textarea
           style={{
             width: '100%',
             height: '100%',
@@ -1750,7 +1806,35 @@ function BlockView({
             background: '#0d1830',
             color: '#eaf1ff',
           }}
+          placeholder={commentData.placeholder}
+          value={commentData.value}
+          readOnly // Value is controlled by Inspector
         />
+      ) : null}
+      {block.type === 'Discard' ? (
+        <div className="p-4 max-w-md mx-auto border rounded-2xl shadow-sm bg-[#0d1830]">
+          <div className="flex items-center justify-between mb-6">
+            <div className="text-sm font-medium">Discard</div>
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => setDiscard(false)}
+                className={`px-3 py-2 rounded-lg border ${
+                  !discard ? "bg-green-50 border-green-300" : "bg-[#0d1830]"
+                }`}
+              >
+                No
+              </button>
+              <button
+                onClick={() => setDiscard(true)}
+                className={`px-3 py-2 rounded-lg border ${
+                  discard ? "bg-red-50 border-red-300" : "bg-[#0d1830]"
+                }`}
+              >
+                Yes
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
       {selected
         ? ['nw', 'ne', 'sw', 'se'].map(direction => (
@@ -1947,10 +2031,11 @@ function Inspector({ block, onChange }) {
       {block.type === 'Questions' ? (
         <LabeledText
           label="Question"
-          value={block.props.question}
-          onChange={value =>
-            onChange({ ...block, props: { ...block.props, question: value } })
-          }
+          value={question}
+          onChange={value => {
+            setQuestion(value);
+            handlePropChange('question', value);
+          }}
         />
       ) : null}
       {block.type === 'Comments' ? (
@@ -1960,15 +2045,15 @@ function Inspector({ block, onChange }) {
             value={placeholder}
             onChange={value => {
               setPlaceholder(value);
-              onChange({ ...block, props: { ...block.props, placeholder: value } });
+              handlePropChange('placeholder', value);
             }}
           />
           <LabeledText
             label="Comment Value"
             value={value}
-            onChange={value => {
-              setValue(value);
-              onChange({ ...block, props: { ...block.props, value: value } });
+            onChange={newValue => {
+              setValue(newValue);
+              handlePropChange('value', newValue);
             }}
           />
         </>
@@ -2028,7 +2113,7 @@ function TemplateBuilder() {
     <div className="min-h-screen bg-slate-50 md:flex">
       <Sidebar />
       <main className="flex-1 min-w-0">
-        <Topbar />
+      
         <div className="p-0 md:p-6">
           <div className="rounded-2xl border border-slate-200 bg-slate-900 shadow-lg overflow-hidden">
             <TemplateBuilderApp />

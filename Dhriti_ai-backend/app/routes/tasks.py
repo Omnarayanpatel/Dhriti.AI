@@ -10,12 +10,15 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app import database
+from app.models.task_annotation import TaskAnnotation
 from app.models.project_template import ProjectTemplate
 from app.models.project import Project, ProjectAssignment, TaskReview
 from app.models.user import User
 from app.routes.protected import get_current_user
 from app.schemas.tasks import (
     AssignedProject,
+    AnnotationCreate,
+    AnnotationResponse,
     ProjectAssignmentRequest,
     ProjectAssignmentResponse,
     ProjectCreate,
@@ -156,6 +159,38 @@ def get_tasks_dashboard(
         assignments=assignments,
         recent_reviews=recent_reviews,
     )
+
+@router.post(
+    "/{task_id}/annotations",
+    response_model=AnnotationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Submit annotations for a task",
+)
+def submit_task_annotations(
+    task_id: str,
+    payload: AnnotationCreate,
+    current_user: TokenData = Depends(get_current_user),
+    db: Session = Depends(database.get_db),
+):
+    user = db.query(User).filter(User.email == current_user.email).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if task_id != payload.task_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task ID mismatch in URL and payload.")
+
+    annotation = TaskAnnotation(
+        task_id=payload.task_id,
+        user_id=user.id,
+        project_id=payload.project_id,
+        template_id=payload.template_id,
+        annotations=payload.annotations,
+        status="completed",
+    )
+    db.add(annotation)
+    db.commit()
+    db.refresh(annotation)
+    return annotation
 
 
 @router.post(

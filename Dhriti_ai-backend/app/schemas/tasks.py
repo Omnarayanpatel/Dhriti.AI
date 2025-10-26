@@ -1,6 +1,6 @@
 from datetime import datetime
 from uuid import UUID
-from typing import List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -104,6 +104,25 @@ class ProjectAssignmentResponse(BaseModel):
     avg_task_time_minutes: Optional[int]
     completed_tasks: int
     pending_tasks: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AnnotationCreate(BaseModel):
+    task_id: str
+    project_id: int
+    template_id: UUID
+    annotations: Dict[str, Any]
+
+
+class AnnotationResponse(BaseModel):
+    id: int
+    task_id: str
+    user_id: int
+    project_id: int
+    annotations: Dict[str, Any]
+    status: str
+    submitted_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
