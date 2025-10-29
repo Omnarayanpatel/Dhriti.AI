@@ -86,6 +86,7 @@ function Sidebar() {
                 {navItem({ to: '/tools/task-import', label: 'Upload Tasks' })}
                 {navItem({ to: '/tools/template-builder', label: 'Template Builder' })}
                 {navItem({ to: '/tools/json-to-excel', label: 'JSON → Excel' })}
+                {navItem({ to: '/tools/download-outputs', label: 'Download Outputs' })}
               </div>
             </details>
           )}

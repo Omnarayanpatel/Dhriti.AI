@@ -28,6 +28,7 @@ function TaskTemplatePlayer() {
   const [annotations, setAnnotations] = useState({});
   const [theme, setTheme] = useState('light'); // 'light' or 'dark'
   const [isDiscarding, setIsDiscarding] = useState(false);
+  const [submitStatus, setSubmitStatus] = useState({ message: '', type: '' });
   const pendingAdvanceRef = useRef(false);
   const previousCountRef = useRef(0);
 
@@ -210,6 +211,8 @@ function TaskTemplatePlayer() {
         throw new Error(errData.detail || 'Failed to submit annotations.');
       }
 
+      setSubmitStatus({ message: 'Task submitted successfully!', type: 'success' });
+      setTimeout(() => setSubmitStatus({ message: '', type: '' }), 3000);
       // Success, move to the next task
       handleNext();
     } catch (err) {
@@ -314,7 +317,7 @@ function TaskTemplatePlayer() {
     <div className={`min-h-screen md:flex ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-900'}`}>
       <Sidebar />
       <main className="flex-1 min-w-0">
-        <Topbar />
+        
         <div className={`mx-auto max-w-6xl p-4 md:p-6 space-y-6 ${theme === 'dark' ? 'text-slate-300' : 'text-slate-800'}`}>
           <div className="space-y-1">
             <h1 className={`text-2xl font-semibold ${theme === 'dark' ? 'text-slate-100' : 'text-slate-800'}`}>
@@ -328,6 +331,12 @@ function TaskTemplatePlayer() {
           {error ? (
             <div className={`rounded-xl p-4 text-sm ${theme === 'light' ? 'border border-red-200 bg-red-50 text-red-700' : 'border border-red-700 bg-red-900/50 text-red-300'}`}>
               {error}
+            </div>
+          ) : null}
+
+          {submitStatus.message && submitStatus.type === 'success' ? (
+            <div className={`rounded-xl p-4 text-sm ${theme === 'light' ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'border border-emerald-700 bg-emerald-900/50 text-emerald-300'}`}>
+              {submitStatus.message}
             </div>
           ) : null}
 
@@ -639,13 +648,13 @@ function PerformableBlock({ block, resolve, annotations, onAnnotationChange, onS
         <div className="p-2">
           <div className={`rounded-xl p-3 ${theme === 'light' ? 'border border-slate-200 bg-white' : 'border border-slate-700 bg-slate-800'}`}>
             <div className={`font-semibold mb-2 text-sm ${theme === 'light' ? 'text-slate-800' : 'text-slate-100'}`}>{questionData.question}</div>
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {['Excellent', 'Good', 'Fair', 'Poor', 'Bad'].map(opt => (
                 <label
                   key={opt}
                   className={`flex items-center justify-center p-2 border rounded-lg cursor-pointer transition-colors text-xs ${
                     currentAnnotation === opt
-                      ? (theme === 'light' ? 'bg-blue-50 border-blue-400 text-blue-800' : 'bg-blue-900/50 border-blue-600 text-blue-300')
+                      ? (theme === 'light' ? 'bg-indigo-50 border-indigo-400 text-indigo-800' : 'bg-indigo-900/50 border-indigo-600 text-indigo-300')
                       : (theme === 'light' ? 'bg-slate-50 border-slate-200 hover:bg-slate-100' : 'bg-slate-700 border-slate-600 hover:bg-slate-600')
                   }`}
                 >
@@ -654,7 +663,7 @@ function PerformableBlock({ block, resolve, annotations, onAnnotationChange, onS
                     name={`${block.id}-question`}
                     value={opt}
                     checked={currentAnnotation === opt}
-                    onChange={() => onAnnotationChange(block, opt)}
+                    onChange={() => onAnnotationChange(block.id, opt)}
                     className="sr-only" // Hide the actual radio button
                   />
                   <span>{opt}</span>
@@ -662,6 +671,7 @@ function PerformableBlock({ block, resolve, annotations, onAnnotationChange, onS
               ))}
             </div>
           </div>
+
         </div>
       ) : null}
       {block.type === 'Submit' ? (
@@ -696,7 +706,7 @@ function PerformableBlock({ block, resolve, annotations, onAnnotationChange, onS
               </button>
               <button
                 type="button"
-                onClick={onSubmit}
+                
                 className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
               >
                 No, Submit

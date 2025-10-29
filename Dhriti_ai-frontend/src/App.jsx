@@ -13,6 +13,7 @@ import JsonToExcel from './pages/JsonToExcel.jsx';
 import TaskImport from './pages/TaskImport.jsx';
 import TemplateBuilder from './pages/TemplateBuilder.jsx';
 import TaskTemplatePlayer from './pages/TaskTemplatePlayer.jsx';
+import DownloadOutput from './pages/DownloadOutput.jsx'; // Import the new component
 
 function App() {
   return (
@@ -116,6 +117,15 @@ function App() {
           </ProtectedRoute>
         }
         />
+      {/* Download Output Route */}
+      <Route
+        path="/tools/download-outputs"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <DownloadOutput />
+          </ProtectedRoute>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

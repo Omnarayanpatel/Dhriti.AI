@@ -1,5 +1,6 @@
 import json
 import os
+from . import export_routes
 import tempfile
 from pathlib import Path
 from typing import List, Optional
@@ -29,10 +30,13 @@ from app.schemas.tasks import (
     UserSummary,
 )
 from app.schemas.token import TokenData
+from app.utils.audit import create_audit_log
 from tools.json_to_excel import json_to_excel
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
+# Include the router for exporting task outputs
+router.include_router(export_routes.router)
 
 def require_admin(current_user: TokenData = Depends(get_current_user)) -> TokenData:
     if current_user.role != "admin":
@@ -102,23 +106,25 @@ def get_tasks_dashboard(
         if avg_minutes is None:
             avg_minutes = project.default_avg_task_time_minutes
 
-        total_completed += assignment.completed_tasks or 0
-        total_pending += assignment.pending_tasks or 0
+        completed_tasks_count = assignment.completed_tasks or 0
+        pending_tasks_count = assignment.pending_tasks or 0
 
-        assignments.append(
-            AssignedProject(
-                assignment_id=assignment.id,
-                project_id=project.id,
-                project_name=project.name,
-                avg_task_time_minutes=avg_minutes,
-                avg_task_time_label=f"{avg_minutes} minutes" if avg_minutes is not None else None,
-                rating=round(float(avg_rating), 2) if avg_rating is not None else None,
-                completed_tasks=assignment.completed_tasks or 0,
-                pending_tasks=assignment.pending_tasks or 0,
-                status=assignment.status or project.status or "Active",
-                template_id=template_id,
-            )
+        assigned_project = AssignedProject(
+            assignment_id=assignment.id,
+            project_id=project.id,
+            project_name=project.name,
+            avg_task_time_minutes=avg_minutes,
+            avg_task_time_label=f"{avg_minutes} minutes" if avg_minutes is not None else None,
+            rating=round(float(avg_rating), 2) if avg_rating is not None else None,
+            completed_tasks=completed_tasks_count,
+            pending_tasks=pending_tasks_count,
+            status=assignment.status or project.status or "Active",
+            template_id=template_id,
         )
+        assignments.append(assigned_project)
+
+        total_completed += completed_tasks_count
+        total_pending += pending_tasks_count
 
     overall_avg_rating = (
         db.query(func.avg(TaskReview.rating))
@@ -227,6 +233,14 @@ def create_project(
     )
     db.add(project)
     db.commit()
+
+    create_audit_log(
+        db,
+        user=_,
+        action="CREATE_PROJECT",
+        target_entity="Project",
+        target_id=str(project.id),
+    )
     db.refresh(project)
     return project
 
@@ -327,6 +341,8 @@ def assign_project_to_user(
         assignment = ProjectAssignment(
             user_id=payload.user_id,
             project_id=payload.project_id,
+            completed_tasks=0,  # Set initial value
+            pending_tasks=0,    # Set initial value
         )
         db.add(assignment)
 

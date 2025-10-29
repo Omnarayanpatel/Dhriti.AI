@@ -117,6 +117,18 @@ def run_startup_migrations() -> None:
         "CREATE INDEX IF NOT EXISTS idx_project_tasks_created_at ON project_tasks(created_at)",
         "CREATE INDEX IF NOT EXISTS idx_project_tasks_payload_gin ON project_tasks USING GIN (payload jsonb_path_ops)",
     ]
+    # Audit Log Table
+    statements.append("""
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            action VARCHAR(255) NOT NULL,
+            target_entity VARCHAR(255),
+            target_id VARCHAR(255),
+            details JSONB,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """)
 
     with engine.begin() as connection:
         for statement in statements:
