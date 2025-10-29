@@ -93,7 +93,7 @@ class ProjectAssignmentRequest(BaseModel):
     status: Optional[str] = None
     avg_task_time_minutes: Optional[int] = Field(default=None, ge=1)
     completed_tasks: Optional[int] = Field(default=None, ge=0)
-    pending_tasks: Optional[int] = Field(default=None, ge=0)
+    total_task_assign: Optional[int] = Field(default=None, ge=0)
 
 
 class ProjectAssignmentResponse(BaseModel):

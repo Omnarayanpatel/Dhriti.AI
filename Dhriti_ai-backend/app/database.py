@@ -86,6 +86,11 @@ def run_startup_migrations() -> None:
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS allow_reviewer_feedback BOOLEAN DEFAULT TRUE",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS reviewer_screen_mode VARCHAR(50) DEFAULT 'full'",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS reviewer_guidelines TEXT",
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS total_tasks_added INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS total_tasks_completed INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()",
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()",
+        "ALTER TABLE project_assignments ADD COLUMN IF NOT EXISTS total_task_assign INTEGER NOT NULL DEFAULT 0",
         """
         CREATE TABLE IF NOT EXISTS task_template (
           id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),

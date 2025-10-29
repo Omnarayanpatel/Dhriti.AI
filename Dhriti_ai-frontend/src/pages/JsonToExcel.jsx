@@ -1241,6 +1241,23 @@ function JsonToExcel() {
 
       const payload = await response.json();
       setConfirmResult(payload);
+
+      // If tasks were inserted, update the project's total_tasks_added count.
+      if (payload.inserted > 0) {
+        const incrementResponse = await fetch(
+          `${API_BASE}/tasks/admin/projects/${projectId}/increment-tasks?count=${payload.inserted}`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+        if (!incrementResponse.ok) {
+          // Log an error but don't block the user, as the main import was successful.
+          console.error('Failed to update project task count.');
+        }
+      }
       setPreviewIssues(Array.isArray(payload.errors) ? payload.errors : []);
     } catch (err) {
       setFeedback(err instanceof Error ? err.message : 'Import failed.');

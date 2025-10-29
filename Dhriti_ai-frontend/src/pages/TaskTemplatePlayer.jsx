@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import Sidebar from '../components/Sidebar';
-import Topbar from '../components/Topbar';
+import { useNavigate, useParams } from 'react-router-dom';
+import Sidebar from '../components/Sidebar.jsx';
+import NotificationBanner from '../components/NotificationBanner.jsx';
 import { getToken } from '../utils/auth.js';
+import TaskSuccessModal from '../components/TaskSuccessModal.jsx';
 
 const API_BASE = 'http://localhost:8000';
 const PAGE_LIMIT = 40;
@@ -15,6 +16,7 @@ const runtimeStyles = {
 
 function TaskTemplatePlayer() {
   const { templateId } = useParams();
+  const navigate = useNavigate();
 
   const [template, setTemplate] = useState(null);
   const [schema, setSchema] = useState([]);
@@ -27,7 +29,7 @@ function TaskTemplatePlayer() {
   const [hasMore, setHasMore] = useState(false);
   const [annotations, setAnnotations] = useState({});
   const [theme, setTheme] = useState('light'); // 'light' or 'dark'
-  const [isDiscarding, setIsDiscarding] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [submitStatus, setSubmitStatus] = useState({ message: '', type: '' });
   const pendingAdvanceRef = useRef(false);
   const previousCountRef = useRef(0);
@@ -211,17 +213,16 @@ function TaskTemplatePlayer() {
         throw new Error(errData.detail || 'Failed to submit annotations.');
       }
 
-      setSubmitStatus({ message: 'Task submitted successfully!', type: 'success' });
-      setTimeout(() => setSubmitStatus({ message: '', type: '' }), 3000);
-      // Success, move to the next task
-      handleNext();
+      // Show the success modal instead of the banner
+      setShowSuccessModal(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An unknown error occurred.';
-      setError(`Submission failed: ${message}`);
+      setSubmitStatus({ message: `Submission failed: ${message}`, type: 'error' });
     }
   };
 
   const handleDiscard = async () => {
+    setSubmitStatus({ message: '', type: '' }); // Clear any previous messages
     if (!currentTask || !template) {
       alert('Cannot discard: task or template data is missing.');
       return;
@@ -233,7 +234,6 @@ function TaskTemplatePlayer() {
       return;
     }
 
-    setIsDiscarding(true);
     const payload = {
       task_id: currentTask.task_id,
       project_id: template.project_id,
@@ -257,10 +257,20 @@ function TaskTemplatePlayer() {
       }
       handleNext(); // Success, move to the next task
     } catch (err) {
-      setError(`Discard failed: ${err instanceof Error ? err.message : 'An unknown error occurred.'}`);
-    } finally {
-      setIsDiscarding(false);
+      setSubmitStatus({ message: `Discard failed: ${err instanceof Error ? err.message : 'An unknown error occurred.'}`, type: 'error' });
     }
+  };
+
+  // Handler for the "Next Task" button in the success modal
+  const handleGoToNext = () => {
+    setShowSuccessModal(false);
+    handleNext();
+  };
+
+  // Handler for the "Go to Home" button in the success modal
+  const handleGoHome = () => {
+    setShowSuccessModal(false);
+    navigate('/tasks'); // Navigate to the main tasks dashboard
   };
 
   const blocks = template?.layout || [];
@@ -328,17 +338,17 @@ function TaskTemplatePlayer() {
             </p>
           </div>
 
-          {error ? (
-            <div className={`rounded-xl p-4 text-sm ${theme === 'light' ? 'border border-red-200 bg-red-50 text-red-700' : 'border border-red-700 bg-red-900/50 text-red-300'}`}>
-              {error}
-            </div>
-          ) : null}
+          {/* General page loading error */}
+          {error && (
+            <NotificationBanner message={error} type="error" onClose={() => setError('')} duration={0} />
+          )}
 
-          {submitStatus.message && submitStatus.type === 'success' ? (
-            <div className={`rounded-xl p-4 text-sm ${theme === 'light' ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'border border-emerald-700 bg-emerald-900/50 text-emerald-300'}`}>
-              {submitStatus.message}
-            </div>
-          ) : null}
+          {/* Submission Status Message */}
+          <NotificationBanner
+            message={submitStatus.message}
+            type={submitStatus.type}
+            onClose={() => setSubmitStatus({ message: '', type: '' })}
+          />
 
           <div className={`flex flex-wrap items-center gap-3 rounded-2xl p-4 shadow-sm ${theme === 'light' ? 'border border-slate-200 bg-white' : 'border border-slate-700 bg-slate-800'}`}>
             <div className="text-sm text-slate-500">
@@ -451,6 +461,8 @@ function TaskTemplatePlayer() {
             </div>
           ) : null}
         </div>
+        {/* Render the success modal */}
+        <TaskSuccessModal show={showSuccessModal} onNext={handleGoToNext} onHome={handleGoHome} />
       </main>
     </div>
   );
