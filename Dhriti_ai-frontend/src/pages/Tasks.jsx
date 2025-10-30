@@ -115,9 +115,9 @@ export default function Tasks() {
     return filtered.slice(start, start + PAGE_SIZE);
   }, [filtered, page]);
 
-  const assignedProjectsCount = stats?.assigned_projects ?? assignments.length;
-  const tasksCompleted = stats?.tasks_completed ?? assignments.reduce((acc, p) => acc + (p.completed_tasks || 0), 0);
-  const tasksPending = stats?.tasks_pending ?? assignments.reduce((acc, p) => acc + (p.pending_tasks || 0), 0);
+  const assignedProjectsCount = Math.max(0, stats?.assigned_projects ?? assignments.length);
+  const tasksCompleted = Math.max(0, stats?.tasks_completed ?? assignments.reduce((acc, p) => acc + Math.max(0, p.completed_tasks || 0), 0));
+  const tasksPending = Math.max(0, stats?.tasks_pending ?? assignments.reduce((acc, p) => acc + Math.max(0, p.pending_tasks || 0), 0));
   const avgRatingDisplay = stats?.avg_rating != null ? stats.avg_rating.toFixed(2) : '—';
 
   const showingFrom = filtered.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
@@ -191,8 +191,8 @@ export default function Tasks() {
                         <td className="p-3">
                           <RatingBadge rating={p.rating} />
                         </td>
-                        <td className="p-3">{(p.completed_tasks ?? 0).toLocaleString()}</td>
-                        <td className="p-3">{(p.pending_tasks ?? 0).toLocaleString()}</td>
+                        <td className="p-3">{Math.max(0, p.completed_tasks ?? 0).toLocaleString()}</td>
+                        <td className="p-3">{Math.max(0, p.pending_tasks ?? 0).toLocaleString()}</td>
                         <td className="p-3">
                           <div className="flex items-center gap-2">
                             <StatusDot status={p.status} />

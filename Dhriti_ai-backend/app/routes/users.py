@@ -59,7 +59,7 @@ def create_user(
     user = User(email=payload.email, hashed_password=hashed_pw, role=payload.role or "user")
     profile = UserProfile(
         name=payload.name,
-        phone=payload.phone,
+        phone=payload.phone or "",
         status=payload.status or "Active",
     )
     user.profile = profile

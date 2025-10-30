@@ -6,7 +6,7 @@ const playSuccessSound = () => {
   try {
     // Create a new Audio object pointing to your sound file in the public folder.
     const audio = new Audio('/sounds/mixkit-winning-notification-2018.wav');
-    audio.volume = 0.5; // Adjust volume as needed (0.0 to 1.0)
+    audio.volume = .75; // Adjust volume as needed (0.0 to 1.0)
     audio.play().catch(e => {
       // Autoplay can sometimes be blocked by the browser.
       // We log the error but don't interrupt the user experience.
@@ -33,7 +33,7 @@ function TaskSuccessModal({ show, onNext, onHome }) {
         window.confetti({
           particleCount: 150,
           spread: 70,
-          origin: { y: 0.5 },
+          origin: { y: 0.52 },
         });
       }
     }

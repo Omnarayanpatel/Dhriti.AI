@@ -177,9 +177,12 @@ function Projects() {
                         <div className="flex items-center gap-3">
                           <button
                             type="button"
-                            onClick={() => openAssignModal(project)}
+                            onClick={() =>
+                              navigate(`/projects/${project.id}/board/task`, {
+                                state: { project },
+                              })
+                            }
                             className="flex size-8 items-center justify-center rounded-full border border-slate-200 text-lg text-slate-400 transition hover:border-brand-500 hover:text-brand-600"
-                            aria-label={`Assign ${project.name}`}
                           >
                             #
                           </button>

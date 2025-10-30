@@ -190,23 +190,17 @@ function UsersTable({ role, roleLabel }) {
       const email = (form.get('email') || '').toString().trim()
       const passwordRaw = (form.get('password') || '').toString()
 
-      const payload = isEdit
-        ? {
-            name,
-            phone: phoneRaw || null,
-            status: status || 'Active',
-            role: role,
-          }
-        : {
-            name,
-            email,
-            phone: phoneRaw || null,
-            status: status || 'Active',
-            role: role,
-            password: passwordRaw.trim(),
-          }
+      const payload = {
+        name,
+        email,
+        phone: phoneRaw || null,
+        status: status || 'Active',
+        role: role,
+      }
 
       if (isEdit && passwordRaw.trim()) {
+        payload.password = passwordRaw.trim()
+      } else if (!isEdit) {
         payload.password = passwordRaw.trim()
       }
 
@@ -265,7 +259,7 @@ function UsersTable({ role, roleLabel }) {
             </div>
             <div>
               <label className="block text-sm mb-1">Phone</label>
-              <input name="phone" defaultValue={editing?.phone} required className="w-full px-3 py-2 rounded-lg border" />
+              <input name="phone" defaultValue={editing?.phone} className="w-full px-3 py-2 rounded-lg border" />
             </div>
             <div>
               <label className="block text-sm mb-1">Status</label>
@@ -290,5 +284,3 @@ function UsersTable({ role, roleLabel }) {
 }
 
 export default Users
-
-

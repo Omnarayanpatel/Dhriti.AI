@@ -1819,7 +1819,7 @@ function BlockView({
               <button
                 onClick={() => setDiscard(false)}
                 className={`px-3 py-2 rounded-lg border ${
-                  !discard ? "bg-green-50 border-green-300" : "bg-[#0d1830]"
+                  !discard ? "bg-green-600 border-green" : "bg-[#0d1830]"
                 }`}
               >
                 No
@@ -1827,7 +1827,7 @@ function BlockView({
               <button
                 onClick={() => setDiscard(true)}
                 className={`px-3 py-2 rounded-lg border ${
-                  discard ? "bg-red-50 border-red-300" : "bg-[#0d1830]"
+                  discard ? "bg-red-500 border-red-300" : "bg-[#0d1830]"
                 }`}
               >
                 Yes

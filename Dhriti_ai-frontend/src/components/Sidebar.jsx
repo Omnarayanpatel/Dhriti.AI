@@ -85,7 +85,7 @@ function Sidebar() {
               <div className="mt-1 ml-4 space-y-1">
                 {navItem({ to: '/tools/task-import', label: 'Upload Tasks' })}
                 {navItem({ to: '/tools/template-builder', label: 'Template Builder' })}
-                {navItem({ to: '/tools/json-to-excel', label: 'JSON → Excel' })}
+                {navItem({ to: '/tools/json-to-excel', label: 'Upload Data' })}
                 {navItem({ to: '/tools/download-outputs', label: 'Download Outputs' })}
               </div>
             </details>

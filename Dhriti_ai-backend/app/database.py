@@ -121,6 +121,7 @@ def run_startup_migrations() -> None:
         "CREATE INDEX IF NOT EXISTS idx_project_tasks_project_id ON project_tasks(project_id)",
         "CREATE INDEX IF NOT EXISTS idx_project_tasks_created_at ON project_tasks(created_at)",
         "CREATE INDEX IF NOT EXISTS idx_project_tasks_payload_gin ON project_tasks USING GIN (payload jsonb_path_ops)",
+        "ALTER TABLE user_profiles ALTER COLUMN timestamp SET DEFAULT now()",
     ]
     # Audit Log Table
     statements.append("""

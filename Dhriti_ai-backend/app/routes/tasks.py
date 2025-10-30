@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 from app import database
 from app.models.task_annotation import TaskAnnotation
 from app.models.project_template import ProjectTemplate
+from app.models.project_task import ProjectTask
 from app.models.project import Project, ProjectAssignment, TaskReview
 from app.models.user import User
 from app.routes.protected import get_current_user
@@ -204,8 +205,9 @@ def submit_task_annotations(
         .first()
     )
     if assignment:
-        assignment.completed_tasks = (assignment.completed_tasks or 0) + 1
-        assignment.pending_tasks = assignment.total_task_assign - assignment.completed_tasks
+        new_completed = (assignment.completed_tasks or 0) + 1
+        assignment.completed_tasks = new_completed
+        assignment.pending_tasks = max(0, assignment.total_task_assign - new_completed)
     db.commit()
     db.refresh(annotation)
     return annotation
@@ -299,6 +301,33 @@ def increment_project_tasks(
 
     project.total_tasks_added = (project.total_tasks_added or 0) + count
     db.commit()
+
+@router.get("/admin/projects/{project_id}/tasks", status_code=status.HTTP_200_OK)
+def get_project_tasks(
+    project_id: int,
+    _: TokenData = Depends(require_admin),
+    db: Session = Depends(database.get_db),
+):
+    """
+    An endpoint to get all tasks for a given project, including allocation info.
+    """
+    # 1. Get all users assigned to this project
+    assignments = (
+        db.query(User.email)
+        .join(ProjectAssignment, User.id == ProjectAssignment.user_id)
+        .filter(ProjectAssignment.project_id == project_id)
+        .all()
+    )
+    # Get the email of the first assigned user, if any
+    allocated_email = assignments[0].email if assignments else None
+
+    # 2. Get all tasks for the project
+    tasks = db.query(ProjectTask).filter(ProjectTask.project_id == project_id).all()
+
+    # 3. Add the allocation email to each task object
+    # Pydantic models from SQLAlchemy are not directly mutable, so we convert to dict
+    return [{**task.__dict__, "email": allocated_email} for task in tasks]
+
 
 @router.get("/admin/users", response_model=List[UserSummary])
 def list_users(
