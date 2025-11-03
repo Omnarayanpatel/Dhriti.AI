@@ -183,6 +183,16 @@ def submit_task_annotations(
     if task_id != payload.task_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task ID mismatch in URL and payload.")
 
+    # Check if an annotation for this task by this user already exists
+    existing_annotation = (
+        db.query(TaskAnnotation)
+        .filter(TaskAnnotation.task_id == task_id, TaskAnnotation.user_id == user.id)
+        .first()
+    )
+    if existing_annotation:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You have already submitted this task.")
+
+    
     annotation = TaskAnnotation(
         task_id=payload.task_id,
         user_id=user.id,

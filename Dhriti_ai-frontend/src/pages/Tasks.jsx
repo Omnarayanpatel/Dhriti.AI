@@ -46,7 +46,7 @@ export default function Tasks() {
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
 
-  const PAGE_SIZE = 10;
+  const PAGE_SIZE = 100;
 
   useEffect(() => {
     const controller = new AbortController();
