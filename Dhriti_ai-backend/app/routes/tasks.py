@@ -237,6 +237,9 @@ def create_project(
     if existing:
         raise HTTPException(status_code=400, detail="Project with this name already exists")
 
+    # If client_id is 0 or not provided, treat it as an internal project (NULL)
+    client_id = payload.client_id if payload.client_id and payload.client_id > 0 else None
+
     project = Project(
         name=payload.name,
         status=payload.status,
@@ -254,6 +257,7 @@ def create_project(
         allow_reviewer_feedback=payload.allow_reviewer_feedback,
         reviewer_screen_mode=payload.reviewer_screen_mode,
         reviewer_guidelines=payload.reviewer_guidelines,
+        client_id=client_id,
     )
     db.add(project)
     db.commit()
@@ -277,11 +281,17 @@ def list_projects(
     # With the new columns, we can query the Project model directly.
     projects = db.query(Project).order_by(Project.name.asc()).all()
 
+    client_ids = {p.client_id for p in projects if p.client_id}
+    clients = db.query(User).filter(User.id.in_(client_ids)).all() if client_ids else []
+    client_map = {client.id: client.email for client in clients}
+
     result: list[ProjectResponse] = []
     for project in projects:
         # The values now come directly from the project object.
         total_tasks_added = project.total_tasks_added or 0
         total_tasks_completed = project.total_tasks_completed or 0
+
+        client_email = client_map.get(project.client_id)
 
         # Create the response, which already includes the new fields from the model.
         payload = ProjectResponse.from_orm(project).copy(
@@ -290,7 +300,9 @@ def list_projects(
                 "total_tasks_completed": total_tasks_completed,
             }
         )
-        result.append(payload)
+        response_data = payload.model_dump()
+        response_data["client_email"] = client_email
+        result.append(ProjectResponse(**response_data))
 
     return result
 

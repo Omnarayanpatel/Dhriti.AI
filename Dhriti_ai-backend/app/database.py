@@ -90,6 +90,8 @@ def run_startup_migrations() -> None:
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS total_tasks_completed INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()",
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS client_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
+        "CREATE INDEX IF NOT EXISTS idx_projects_client_id ON projects(client_id)",
         "ALTER TABLE project_assignments ADD COLUMN IF NOT EXISTS total_task_assign INTEGER NOT NULL DEFAULT 0",
         """
         CREATE TABLE IF NOT EXISTS task_template (

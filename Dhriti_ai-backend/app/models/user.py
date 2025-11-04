@@ -12,6 +12,9 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     role = Column(String, default="user")
 
+    projects = relationship(
+        "Project", back_populates="client", cascade="all, delete-orphan"
+    )
     assignments = relationship(
         "ProjectAssignment", back_populates="user", cascade="all, delete-orphan"
     )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 import re
@@ -29,6 +30,7 @@ from app.services.task_ingest import (
     MappingRuntime,
     TaskImportError,
     convert_json_bytes_to_excel,
+    PREVIEW_LIMIT,
     determine_sheet_name,
     prepare_dataset_rows,
     process_row,
@@ -173,6 +175,69 @@ async def json_to_excel(
         total_rows=total_rows,
         download_url=f"/imports/downloads/{excel_upload_id}",
         preview_rows=preview_rows,
+    )
+
+
+@router.post("/process-server-file", response_model=JsonToExcelResponse)
+async def process_server_file(
+    filename: str = Form(...),
+    sheet_name: Optional[str] = Form(None),
+    _: TokenData = Depends(require_admin),
+) -> JsonToExcelResponse:
+    """
+    Processes a file that is already on the server (e.g., from client uploads).
+    This endpoint is designed to be called from the frontend when an admin
+    wants to use a client's uploaded file directly in the import pipeline.
+    """
+    # Security: Prevent directory traversal attacks
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename.")
+
+    # Client uploads are in a directory at the project root.
+    file_path = UPLOAD_ROOT.parents[1] / "client_uploads" / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"File '{filename}' not found on server.")
+
+    excel_upload_id = uuid4().hex
+    excel_path = _excel_path(excel_upload_id)
+    resolved_sheet_name = determine_sheet_name(sheet_name, filename)
+
+    columns = []
+    total_rows = 0
+    preview_rows = []
+
+    try:
+        file_ext = file_path.suffix.lower()
+        if file_ext == ".json":
+            contents = file_path.read_bytes()
+            columns, total_rows, preview_rows = convert_json_bytes_to_excel(
+                contents, "$", excel_path, resolved_sheet_name
+            )
+        elif file_ext in (".xlsx", ".xls", ".csv"):
+            # For Excel/CSV, we can copy it and read the preview directly.
+            with open(file_path, "rb") as f_in, open(excel_path, "wb") as f_out:
+                f_out.write(f_in.read())
+
+            _, columns, preview_rows, total_rows = read_preview_records_from_excel(
+                excel_path, resolved_sheet_name, limit=PREVIEW_LIMIT
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type: '{file_ext}'. Please use JSON, Excel, or CSV.",
+            )
+    except TaskImportError as exc:
+        excel_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        excel_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Failed to process server file: {exc}") from exc
+
+    _write_metadata(excel_upload_id, {"type": "excel", "source": filename, "sheet": resolved_sheet_name, "columns": columns, "rows": total_rows, "from_client_upload": True})
+
+    return JsonToExcelResponse(
+        excel_upload_id=excel_upload_id, sheet_name=resolved_sheet_name, columns=columns, total_rows=total_rows,
+        download_url=f"/imports/downloads/{excel_upload_id}", preview_rows=preview_rows,
     )
 
 

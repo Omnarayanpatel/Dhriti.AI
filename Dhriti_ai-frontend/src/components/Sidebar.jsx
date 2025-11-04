@@ -7,7 +7,7 @@ function Sidebar() {
     if (typeof window === 'undefined') {
       return true;
     }
-    return window.innerWidth >= 768;
+    return window.innerWidth >= 768; // Default to open on desktop
   });
   const userRole = getUserRole();
 
@@ -17,13 +17,19 @@ function Sidebar() {
     }
   };
 
-  const navItem = ({ to, label }) => (
+  const handleLogoutClick = () => {
+    // This should be expanded to call your logout utility
+    // For now, it just handles the navigation click
+    handleNavClick();
+  };
+
+  const navItem = ({ to, label, isLogout = false }) => (
     <NavLink
       to={to}
       className={({ isActive }) =>
         `flex items-center gap-3 px-4 py-2 rounded-lg transition hover:bg-slate-100 ${isActive ? 'bg-slate-100 text-brand-700' : 'text-slate-700'}`
       }
-      onClick={handleNavClick}
+      onClick={isLogout ? handleLogoutClick : handleNavClick}
     >
       <span>{label}</span>
     </NavLink>
@@ -74,6 +80,7 @@ function Sidebar() {
                 {navItem({ to: '/users/admins', label: 'Admins' })}
                 {navItem({ to: '/users/experts', label: 'Experts' })}
                 {navItem({ to: '/users/vendors', label: 'Vendors' })}
+                {navItem({ to: '/users/clients', label: 'Clients' })}
               </div>
             </details>
           )}
@@ -85,13 +92,14 @@ function Sidebar() {
               <div className="mt-1 ml-4 space-y-1">
                 {navItem({ to: '/tools/task-import', label: 'Upload Tasks' })}
                 {navItem({ to: '/tools/template-builder', label: 'Template Builder' })}
-                {navItem({ to: '/tools/json-to-excel', label: 'Upload Data' })}
+                {navItem({ to: '/tools/json-to-excel', label: 'Task Import Pipeline' })}
+                {navItem({ to: '/tools/client-uploads', label: 'Client Uploads' })}
                 {navItem({ to: '/tools/download-outputs', label: 'Download Outputs' })}
               </div>
             </details>
           )}
           {navItem({ to: '/projects', label: 'Projects' })}
-          {navItem({ to: '/login', label: 'Logout' })}
+          {navItem({ to: '/login', label: 'Logout', isLogout: true })}
         </nav>
       </div>
     </aside>

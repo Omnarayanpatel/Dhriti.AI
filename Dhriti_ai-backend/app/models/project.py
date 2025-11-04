@@ -20,6 +20,7 @@ from app.database import Base
 class Project(Base):
     __tablename__ = "projects"
 
+    client_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, nullable=False)
     status = Column(String, default="Active", nullable=False)
@@ -43,6 +44,8 @@ class Project(Base):
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
+    client = relationship("User", back_populates="projects")
+
     assignments = relationship(
         "ProjectAssignment", back_populates="project", cascade="all, delete-orphan"
     )
@@ -51,6 +54,10 @@ class Project(Base):
     )
     templates = relationship(
         "ProjectTemplate", back_populates="project", cascade="all, delete-orphan"
+    )
+
+    tasks = relationship(
+        "ProjectTask", back_populates="project", cascade="all, delete-orphan"
     )
 
 

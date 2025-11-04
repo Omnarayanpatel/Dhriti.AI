@@ -14,6 +14,8 @@ import TaskImport from './pages/TaskImport.jsx';
 import TemplateBuilder from './pages/TemplateBuilder.jsx';
 import TaskTemplatePlayer from './pages/TaskTemplatePlayer.jsx';
 import DownloadOutput from './pages/DownloadOutput.jsx'; // Import the new component
+import ClientDashboard from './pages/ClientDashboard.jsx';
+import ClientUploads from './pages/ClientUploads.jsx';
 
 function App() {
   return (
@@ -123,6 +125,22 @@ function App() {
         element={
           <ProtectedRoute allowedRoles={['admin']}>
             <DownloadOutput />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/client/dashboard"
+        element={
+          <ProtectedRoute allowedRoles={['client']}>
+            <ClientDashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tools/client-uploads"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <ClientUploads />
           </ProtectedRoute>
         }
       />

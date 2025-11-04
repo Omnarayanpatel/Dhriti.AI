@@ -16,6 +16,9 @@ const ProtectedRoute = ({ allowedRoles = [], children }) => {
     if (role === 'admin') {
       return <Navigate to="/dashboard" replace />;
     }
+    if (role === 'client') {
+      return <Navigate to="/client/dashboard" replace />;
+    }
     if (['user', 'expert', 'vendor'].includes(role)) {
       return <Navigate to="/tasks" replace />;
     }

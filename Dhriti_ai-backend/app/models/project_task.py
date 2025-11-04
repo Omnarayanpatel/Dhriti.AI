@@ -14,6 +14,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
@@ -46,6 +47,8 @@ class ProjectTask(Base):
         onupdate=func.now(),
     )
 
+    project = relationship("Project", back_populates="tasks")
+
     __table_args__ = (
         UniqueConstraint("project_id", "task_id", name="uq_project_tasks_project_task_id"),
         CheckConstraint("jsonb_typeof(payload) = 'object'", name="ck_project_tasks_payload_object"),
@@ -53,4 +56,3 @@ class ProjectTask(Base):
         Index("idx_project_tasks_created_at", "created_at"),
         Index("idx_project_tasks_payload_gin", payload, postgresql_using="gin"),
     )
-

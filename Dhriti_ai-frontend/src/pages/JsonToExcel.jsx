@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
+import { useSearchParams } from 'react-router-dom';
 
 import Sidebar from '../components/Sidebar.jsx';
 import Topbar from '../components/Topbar.jsx';
@@ -290,6 +291,7 @@ const sheetsEqual = (left, right) => {
 };
 
 function JsonToExcel() {
+  const [searchParams] = useSearchParams();
   const [projects, setProjects] = useState([]);
   const [projectId, setProjectId] = useState('');
 
@@ -395,11 +397,27 @@ function JsonToExcel() {
         setProjects(Array.isArray(payload) ? payload : []);
       } catch (err) {
         setFeedback(err instanceof Error ? err.message : 'Unable to load projects.');
+      } finally {
+        // This part runs after projects are loaded
+        const clientUploadFile = searchParams.get('client_upload_file');
+        if (clientUploadFile) {
+          processServerFile(clientUploadFile);
+        }
       }
     };
 
     loadProjects();
-  }, []);
+  }, [searchParams]);
+
+  useEffect(() => {
+    const clientIdFromUrl = searchParams.get('client_id');
+    if (clientIdFromUrl && projects.length > 0) {
+      const matchingProject = projects.find(p => String(p.client_id) === clientIdFromUrl);
+      if (matchingProject) {
+        setProjectId(matchingProject.id);
+      }
+    }
+  }, [searchParams, projects]);
 
   useEffect(() => {
     if (!sheetData.length) {
@@ -866,6 +884,54 @@ function JsonToExcel() {
       setSheetLoading(false);
     }
   }, [loadSheetData]);
+
+  const processServerFile = async (filename) => {
+    const token = getToken();
+    if (!token) {
+      setFeedback('Session expired. Please log in again.');
+      return;
+    }
+
+    setConvertLoading(true);
+    setFeedback('');
+    setPreviewRows([]);
+    setPreviewIssues([]);
+    setConfirmResult(null);
+    setJsonFile(null); // Clear any manually selected file
+
+    try {
+      const form = new FormData();
+      form.append('filename', filename);
+      const derivedSheetName = deriveSheetNameFromFile(filename);
+      if (derivedSheetName) {
+        form.append('sheet_name', derivedSheetName);
+      }
+
+      const response = await fetch(`${API_BASE}/imports/process-server-file`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: form,
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(extractErrorMessage(payload, 'Failed to process server file.'));
+      }
+
+      const payload = await response.json();
+      setConversionResult(payload);
+      setSheetName(payload.sheet_name || derivedSheetName || '');
+      setJsonFile({ name: filename }); // Set a mock file object for UI consistency
+
+      await fetchWorkbook(payload.download_url, payload.sheet_name);
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Failed to process server file.');
+    } finally {
+      setConvertLoading(false);
+    }
+  };
 
   const downloadFileWithAuth = useCallback(async (downloadPath, fallbackName) => {
     if (!downloadPath) {

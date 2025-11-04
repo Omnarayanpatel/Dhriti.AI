@@ -19,6 +19,10 @@ const HomeRedirect = () => {
         return <Navigate to="/dashboard" replace />;
     }
 
+    if (role === 'client') {
+        return <Navigate to="/client/dashboard" replace />;
+    }
+
     // Fallback for any other roles or if role is not set
     return <Navigate to="/login" replace />;
 };

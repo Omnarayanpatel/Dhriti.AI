@@ -46,6 +46,7 @@ class TasksDashboardResponse(BaseModel):
 
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=3)
+    client_id: Optional[int] = None
     status: str = Field(default="Active", min_length=1)
     description: Optional[str] = None
     data_category: Optional[str] = None
@@ -83,6 +84,8 @@ class ProjectResponse(BaseModel):
     reviewer_guidelines: Optional[str]
     total_tasks_added: int = 0
     total_tasks_completed: int = 0
+    client_id: Optional[int] = None
+    client_email: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

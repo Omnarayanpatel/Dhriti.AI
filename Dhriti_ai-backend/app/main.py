@@ -6,7 +6,9 @@ import app.models.audit  # noqa: F401
 import app.models.task_import  # noqa: F401
 import app.models.project_template  # noqa: F401
 from app.database import Base, engine, run_startup_migrations
-from app.routes import auth, batches, dashboard, protected, task_ingest, tasks, template_builder, users
+from app.routes import auth, batches, dashboard, protected, task_ingest, tasks, template_builder, users, client
+from app.routes import admin # Add this import
+
 
 app = FastAPI()
 
@@ -36,3 +38,5 @@ app.include_router(task_ingest.router)
 app.include_router(tasks.router)
 app.include_router(template_builder.router)
 app.include_router(users.router)
+app.include_router(client.router) 
+app.include_router(admin.router)

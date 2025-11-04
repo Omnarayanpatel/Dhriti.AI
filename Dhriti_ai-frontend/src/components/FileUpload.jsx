@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 
-function FileUpload({ onFileSelected, accept = '*', disabled = false }) {
+function FileUpload({ onFileSelected, accept = '*', disabled = false, prompt }) {
   const inputRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
   const [fileName, setFileName] = useState('');
@@ -46,7 +46,11 @@ function FileUpload({ onFileSelected, accept = '*', disabled = false }) {
         } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
       >
         <div className="text-3xl">📤</div>
-        <div className="mt-2 font-semibold">Drag and drop files here</div>
+        {disabled && prompt ? (
+          <div className="mt-2 font-semibold text-slate-600">{prompt}</div>
+        ) : (
+          <div className="mt-2 font-semibold">Drag and drop files here</div>
+        )}
         <div className="text-sm text-slate-500">or</div>
         <button
           type="button"
@@ -83,5 +87,3 @@ function FileUpload({ onFileSelected, accept = '*', disabled = false }) {
 }
 
 export default FileUpload;
-
-
