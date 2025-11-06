@@ -75,6 +75,12 @@ function AddProject() {
       return
     }
 
+    // If association is 'Client', ensure a client is selected.
+    if (form.association === 'Client' && !form.clientId) {
+      setError('Please select a client for the project.');
+      return;
+    }
+
     setError('')
     setLoading(true)
 
@@ -95,6 +101,7 @@ function AddProject() {
         review_time_minutes: form.reviewTime ? Number(form.reviewTime) : null,
         max_users_per_task: form.maxUsers ? Number(form.maxUsers) : null,
         client_id: form.association === 'Client' && form.clientId ? Number(form.clientId) : null,
+        association: form.association,
         auto_submit_task: form.autoSubmit,
         allow_reviewer_edit: form.reviewerEdit,
         allow_reviewer_push_back: form.reviewerPushBack,

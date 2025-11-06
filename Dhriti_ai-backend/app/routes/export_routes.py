@@ -13,8 +13,6 @@ from app.schemas.tasks import AnnotationResponse
 
 router = APIRouter()
 
-pass
-
 @router.get(
     "/admin/projects/{project_id}/export-outputs",
     summary="Export all task outputs for a project",

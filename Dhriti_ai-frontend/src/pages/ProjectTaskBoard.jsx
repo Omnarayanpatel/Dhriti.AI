@@ -100,8 +100,15 @@ export default function ProjectTaskBoard() {
                 </span>
               </div>
 
-              <div className="pt-4">
-                <h2 className="text-lg font-semibold text-slate-800">Tasks ({tasks.length})</h2>
+              <div className="pt-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-slate-800">Tasks ({loading ? '...' : tasks.length})</h2>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/tools/json-to-excel?project_id=${projectId}`)}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600"
+                >
+                  Import Tasks
+                </button>
               </div>
             </header>
 

@@ -10,7 +10,6 @@ import ProjectTaskBoard from './pages/ProjectTaskBoard.jsx';
 import ProtectedRoute from './components/ProtectedRoute';
 import HomeRedirect from './components/HomeRedirect.jsx';
 import JsonToExcel from './pages/JsonToExcel.jsx';
-import TaskImport from './pages/TaskImport.jsx';
 import TemplateBuilder from './pages/TemplateBuilder.jsx';
 import TaskTemplatePlayer from './pages/TaskTemplatePlayer.jsx';
 import DownloadOutput from './pages/DownloadOutput.jsx'; // Import the new component
@@ -102,15 +101,6 @@ function App() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/tools/task-import"
-        element={
-          <ProtectedRoute allowedRoles={['admin']}>
-            <TaskImport />
-          </ProtectedRoute>
-        }
-      />
-      {/* Task Template Player Route */}
       <Route
         path="/templates/:templateId/play"
         element={

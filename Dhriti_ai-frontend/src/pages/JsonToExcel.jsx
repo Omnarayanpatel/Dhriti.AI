@@ -410,11 +410,17 @@ function JsonToExcel() {
   }, [searchParams]);
 
   useEffect(() => {
-    const clientIdFromUrl = searchParams.get('client_id');
-    if (clientIdFromUrl && projects.length > 0) {
-      const matchingProject = projects.find(p => String(p.client_id) === clientIdFromUrl);
-      if (matchingProject) {
-        setProjectId(matchingProject.id);
+    if (projects.length === 0) return;
+
+    const projectIdFromUrl = searchParams.get('project_id');
+    if (projectIdFromUrl) {
+      const matchingProject = projects.find(p => String(p.id) === projectIdFromUrl);
+      if (matchingProject) setProjectId(projectIdFromUrl);
+    } else {
+      const clientIdFromUrl = searchParams.get('client_id');
+      if (clientIdFromUrl) {
+        const matchingProject = projects.find(p => String(p.client_id) === clientIdFromUrl);
+        if (matchingProject) setProjectId(matchingProject.id);
       }
     }
   }, [searchParams, projects]);
@@ -1410,7 +1416,7 @@ function JsonToExcel() {
                     disabled={convertLoading || !jsonFile}
                     className="inline-flex items-center justify-center rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
-                    {convertLoading ? 'Processing…' : 'Convert JSON to Excel'}
+                    {convertLoading ? 'Processing…' : 'Load Data from JSON'}
                   </button>
                 </div>
               </div>

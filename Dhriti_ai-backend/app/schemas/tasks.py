@@ -55,7 +55,7 @@ class ProjectCreate(BaseModel):
     default_avg_task_time_minutes: Optional[int] = Field(default=None, ge=1)
     review_time_minutes: Optional[int] = Field(default=None, ge=1)
     max_users_per_task: Optional[int] = Field(default=None, ge=1)
-    association: Optional[str] = None
+    association: Optional[str] = "Admin"
     auto_submit_task: bool = False
     allow_reviewer_edit: bool = True
     allow_reviewer_push_back: bool = True
@@ -75,7 +75,7 @@ class ProjectResponse(BaseModel):
     task_type: Optional[str]
     review_time_minutes: Optional[int]
     max_users_per_task: Optional[int]
-    association: Optional[str]
+    association: Optional[str] = "Admin"
     auto_submit_task: bool
     allow_reviewer_edit: bool
     allow_reviewer_push_back: bool

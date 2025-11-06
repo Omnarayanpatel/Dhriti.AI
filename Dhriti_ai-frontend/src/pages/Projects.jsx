@@ -201,7 +201,9 @@ function Projects() {
                       </td>
                       <td className="p-4 align-middle font-medium">{(project.total_tasks_added ?? 0).toLocaleString()}</td>
                       <td className="p-4 align-middle font-medium text-emerald-600">{(project.total_tasks_completed ?? 0).toLocaleString()}</td>
-                      <td className="p-4 align-middle text-slate-600">{project.association ? project.association.toUpperCase() : '—'}</td>
+                      <td className="p-4 align-middle text-slate-600">
+                        {project.association === 'Client' && project.client_email ? project.client_email : 'Admin'}
+                      </td>
                       <td className="p-4">
                         <div className="flex justify-end gap-2">
                           <button
