@@ -1,5 +1,6 @@
 from datetime import datetime
-from typing import List, Optional, Literal
+from uuid import UUID
+from typing import Any, Dict, List, Optional, Literal
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -14,6 +15,7 @@ class AssignedProject(BaseModel):
     completed_tasks: int
     pending_tasks: int
     status: str
+    template_id: Optional[UUID] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -44,6 +46,7 @@ class TasksDashboardResponse(BaseModel):
 
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=3)
+    client_id: Optional[int] = None
     status: str = Field(default="Active", min_length=1)
     description: Optional[str] = None
     data_category: Optional[str] = None
@@ -52,7 +55,7 @@ class ProjectCreate(BaseModel):
     default_avg_task_time_minutes: Optional[int] = Field(default=None, ge=1)
     review_time_minutes: Optional[int] = Field(default=None, ge=1)
     max_users_per_task: Optional[int] = Field(default=None, ge=1)
-    association: Optional[str] = None
+    association: Optional[str] = "Admin"
     auto_submit_task: bool = False
     allow_reviewer_edit: bool = True
     allow_reviewer_push_back: bool = True
@@ -72,7 +75,7 @@ class ProjectResponse(BaseModel):
     task_type: Optional[str]
     review_time_minutes: Optional[int]
     max_users_per_task: Optional[int]
-    association: Optional[str]
+    association: Optional[str] = "Admin"
     auto_submit_task: bool
     allow_reviewer_edit: bool
     allow_reviewer_push_back: bool
@@ -81,6 +84,8 @@ class ProjectResponse(BaseModel):
     reviewer_guidelines: Optional[str]
     total_tasks_added: int = 0
     total_tasks_completed: int = 0
+    client_id: Optional[int] = None
+    client_email: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -91,7 +96,7 @@ class ProjectAssignmentRequest(BaseModel):
     status: Optional[str] = None
     avg_task_time_minutes: Optional[int] = Field(default=None, ge=1)
     completed_tasks: Optional[int] = Field(default=None, ge=0)
-    pending_tasks: Optional[int] = Field(default=None, ge=0)
+    total_task_assign: Optional[int] = Field(default=None, ge=0)
 
 
 class ProjectAssignmentResponse(BaseModel):
@@ -102,6 +107,25 @@ class ProjectAssignmentResponse(BaseModel):
     avg_task_time_minutes: Optional[int]
     completed_tasks: int
     pending_tasks: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AnnotationCreate(BaseModel):
+    task_id: str
+    project_id: int
+    template_id: UUID
+    annotations: Dict[str, Any]
+
+
+class AnnotationResponse(BaseModel):
+    id: int
+    task_id: str
+    user_id: int
+    project_id: int
+    annotations: Dict[str, Any]
+    status: str
+    submitted_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 

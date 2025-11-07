@@ -26,13 +26,15 @@ def get_dashboard_summary(
     active_projects = (
         db.query(func.count(Project.id)).filter(Project.status == "Active").scalar() or 0
     )
+    total_tasks = db.query(func.coalesce(func.sum(Project.total_tasks_added), 0)).scalar() or 0
     total_tasks_completed = (
         db.query(func.coalesce(func.sum(ProjectAssignment.completed_tasks), 0)).scalar() or 0
     )
     total_tasks_pending = (
-        db.query(func.coalesce(func.sum(ProjectAssignment.pending_tasks), 0)).scalar() or 0
+        db.query(
+            func.coalesce(func.sum(func.greatest(0, ProjectAssignment.pending_tasks)), 0)
+        ).scalar() or 0
     )
-    total_tasks = total_tasks_completed + total_tasks_pending
     total_assignments = db.query(func.count(ProjectAssignment.id)).scalar() or 0
     active_assignments = (
         db.query(func.count(ProjectAssignment.id))

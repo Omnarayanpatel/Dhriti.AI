@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
+import { useSearchParams } from 'react-router-dom';
 
 import Sidebar from '../components/Sidebar.jsx';
 import Topbar from '../components/Topbar.jsx';
@@ -36,7 +37,7 @@ const deriveSheetNameFromFile = fileName => {
   if (!fileName) return '';
   const base = fileName.replace(/\.[^.]+$/, '') || fileName;
   const cleaned = base.replace(/[\[\]:*?/\\]/g, '_').trim();
-  const truncated = cleaned.slice(0, 31).trim();
+  const truncated = cleaned.slice(0, 40).trim();
   return truncated || 'Sheet1';
 };
 
@@ -116,7 +117,181 @@ const pickColumn = (columns, hints, fallback = '') => {
   return fallback;
 };
 
+const findMatchInSheet = (sheet, query, matchCase, startPosition = null) => {
+  if (!sheet.length || !query) {
+    return null;
+  }
+  const totalColumns = sheet[0]?.length ?? 0;
+  if (!totalColumns) {
+    return null;
+  }
+
+  const needle = matchCase ? query : query.toLowerCase();
+  const totalCells = sheet.length * totalColumns;
+
+  let startFlatIndex = 0;
+  let wrappedAlready = false;
+  if (
+    startPosition
+    && Number.isInteger(startPosition.rowIndex)
+    && Number.isInteger(startPosition.columnIndex)
+  ) {
+    startFlatIndex = (startPosition.rowIndex * totalColumns) + startPosition.columnIndex + 1;
+    if (startFlatIndex >= totalCells) {
+      startFlatIndex = 0;
+      wrappedAlready = true;
+    }
+  }
+
+  for (let offset = 0; offset < totalCells; offset += 1) {
+    const flatIndex = (startFlatIndex + offset) % totalCells;
+    const rowIndex = Math.floor(flatIndex / totalColumns);
+    const columnIndex = flatIndex % totalColumns;
+    const rawCell = sheet[rowIndex]?.[columnIndex];
+    if (rawCell === undefined || rawCell === null) {
+      continue;
+    }
+    const cellText = String(rawCell);
+    const haystack = matchCase ? cellText : cellText.toLowerCase();
+    if (haystack.includes(needle)) {
+      const wrapped = wrappedAlready || startFlatIndex > flatIndex;
+      return { rowIndex, columnIndex, cellText, wrapped };
+    }
+  }
+
+  return null;
+};
+
+const replaceFirstInCell = (cellText, query, replacement, matchCase) => {
+  const source = String(cellText ?? '');
+  if (!query) {
+    return { changed: false, value: source };
+  }
+  const haystack = matchCase ? source : source.toLowerCase();
+  const needle = matchCase ? query : query.toLowerCase();
+  const index = haystack.indexOf(needle);
+  if (index === -1) {
+    return { changed: false, value: source };
+  }
+  const value = `${source.slice(0, index)}${replacement}${source.slice(index + query.length)}`;
+  return { changed: true, value };
+};
+
+const replaceAllInCell = (cellText, query, replacement, matchCase) => {
+  const source = String(cellText ?? '');
+  if (!source || !query) {
+    return { count: 0, value: source };
+  }
+
+  if (matchCase) {
+    const segments = source.split(query);
+    const count = segments.length - 1;
+    if (count <= 0) {
+      return { count: 0, value: source };
+    }
+    return { count, value: segments.join(replacement) };
+  }
+
+  const lowerSource = source.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  if (!lowerSource.includes(lowerQuery)) {
+    return { count: 0, value: source };
+  }
+
+  let cursor = 0;
+  let count = 0;
+  let result = '';
+  while (cursor < source.length) {
+    const index = lowerSource.indexOf(lowerQuery, cursor);
+    if (index === -1) {
+      result += source.slice(cursor);
+      break;
+    }
+    result += source.slice(cursor, index) + replacement;
+    cursor = index + query.length;
+    count += 1;
+  }
+
+  return { count, value: result };
+};
+
+const replaceAllInSheet = (sheet, query, replacement, matchCase) => {
+  if (!sheet.length || !query) {
+    return { data: sheet, total: 0 };
+  }
+  const totalColumns = sheet[0]?.length ?? 0;
+  if (!totalColumns) {
+    return { data: sheet, total: 0 };
+  }
+
+  let total = 0;
+  const next = sheet.map(row => {
+    if (!Array.isArray(row)) {
+      return row;
+    }
+    let rowChanged = false;
+    const copy = row.map((cell, columnIndex) => {
+      const { count, value } = replaceAllInCell(cell, query, replacement, matchCase);
+      if (count > 0) {
+        rowChanged = true;
+        total += count;
+        return value;
+      }
+      return row[columnIndex];
+    });
+    return rowChanged ? copy : row;
+  });
+
+  if (!total) {
+    return { data: sheet, total: 0 };
+  }
+
+  return { data: next, total };
+};
+
+const HISTORY_LIMIT = 50;
+
+const cloneSheet = sheet =>
+  Array.isArray(sheet)
+    ? sheet.map(row => (Array.isArray(row) ? [...row] : row))
+    : [];
+
+const sheetsEqual = (left, right) => {
+  if (left === right) {
+    return true;
+  }
+  if (!Array.isArray(left) || !Array.isArray(right)) {
+    return false;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let rowIndex = 0; rowIndex < left.length; rowIndex += 1) {
+    const leftRow = left[rowIndex];
+    const rightRow = right[rowIndex];
+    if (leftRow === rightRow) {
+      continue;
+    }
+    if (!Array.isArray(leftRow) || !Array.isArray(rightRow)) {
+      if (leftRow !== rightRow) {
+        return false;
+      }
+      continue;
+    }
+    if (leftRow.length !== rightRow.length) {
+      return false;
+    }
+    for (let columnIndex = 0; columnIndex < leftRow.length; columnIndex += 1) {
+      if (leftRow[columnIndex] !== rightRow[columnIndex]) {
+        return false;
+      }
+    }
+  }
+  return true;
+};
+
 function JsonToExcel() {
+  const [searchParams] = useSearchParams();
   const [projects, setProjects] = useState([]);
   const [projectId, setProjectId] = useState('');
 
@@ -128,6 +303,9 @@ function JsonToExcel() {
 
   const [sheetData, setSheetData] = useState([]);
   const [sheetLoading, setSheetLoading] = useState(false);
+  const sheetDataRef = useRef(sheetData);
+  const [undoStack, setUndoStack] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
 
   const [columns, setColumns] = useState([]);
   const [coreMapping, setCoreMapping] = useState({
@@ -152,6 +330,54 @@ function JsonToExcel() {
   const [confirmResult, setConfirmResult] = useState(null);
 
   const [feedback, setFeedback] = useState('');
+  const [findQuery, setFindQuery] = useState('');
+  const [replaceValue, setReplaceValue] = useState('');
+  const [matchCase, setMatchCase] = useState(false);
+  const [currentMatch, setCurrentMatch] = useState(null);
+  const [activeCell, setActiveCell] = useState(null);
+  const [findStatus, setFindStatus] = useState({ message: '', tone: 'muted' });
+
+  const updateFindStatus = useCallback((message, tone = 'muted') => {
+    setFindStatus({ message, tone });
+  }, []);
+
+  const findStatusToneClass = useMemo(() => {
+    if (findStatus.tone === 'error') {
+      return 'text-red-600';
+    }
+    if (findStatus.tone === 'success') {
+      return 'text-emerald-600';
+    }
+    if (findStatus.tone === 'info') {
+      return 'text-slate-600';
+    }
+    return 'text-slate-500';
+  }, [findStatus]);
+
+  const resetFindContext = useCallback(() => {
+    setCurrentMatch(null);
+    setActiveCell(null);
+    updateFindStatus('', 'muted');
+  }, [updateFindStatus]);
+
+  useEffect(() => {
+    resetFindContext();
+  }, [findQuery, matchCase, resetFindContext]);
+
+  useEffect(() => {
+    if (!currentMatch) {
+      return;
+    }
+    const row = sheetData[currentMatch.rowIndex];
+    if (!row || currentMatch.columnIndex >= row.length) {
+      setCurrentMatch(null);
+      setActiveCell(null);
+    }
+  }, [sheetData, currentMatch]);
+
+  useEffect(() => {
+    sheetDataRef.current = sheetData;
+  }, [sheetData]);
 
   useEffect(() => {
     const token = getToken();
@@ -171,11 +397,33 @@ function JsonToExcel() {
         setProjects(Array.isArray(payload) ? payload : []);
       } catch (err) {
         setFeedback(err instanceof Error ? err.message : 'Unable to load projects.');
+      } finally {
+        // This part runs after projects are loaded
+        const clientUploadFile = searchParams.get('client_upload_file');
+        if (clientUploadFile) {
+          processServerFile(clientUploadFile);
+        }
       }
     };
 
     loadProjects();
-  }, []);
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (projects.length === 0) return;
+
+    const projectIdFromUrl = searchParams.get('project_id');
+    if (projectIdFromUrl) {
+      const matchingProject = projects.find(p => String(p.id) === projectIdFromUrl);
+      if (matchingProject) setProjectId(projectIdFromUrl);
+    } else {
+      const clientIdFromUrl = searchParams.get('client_id');
+      if (clientIdFromUrl) {
+        const matchingProject = projects.find(p => String(p.client_id) === clientIdFromUrl);
+        if (matchingProject) setProjectId(matchingProject.id);
+      }
+    }
+  }, [searchParams, projects]);
 
   useEffect(() => {
     if (!sheetData.length) {
@@ -278,37 +526,90 @@ function JsonToExcel() {
     });
   }, [columns]);
 
+  const toggleTransform = useCallback((current, transform) => {
+    if (current.includes(transform)) {
+      return current.filter(item => item !== transform);
+    }
+    return [...current, transform];
+  }, []);
+
+  const loadSheetData = useCallback(
+    data => {
+      const safeSheet = cloneSheet(data);
+      setSheetData(safeSheet);
+      sheetDataRef.current = safeSheet;
+      setUndoStack([]);
+      setRedoStack([]);
+      resetFindContext();
+    },
+    [resetFindContext],
+  );
+
+  const commitSheetChange = useCallback(
+    (updateFn, { skipHistory = false, resetRedo = true } = {}) => {
+      setSheetData(prev => {
+        const nextSheet = typeof updateFn === 'function' ? updateFn(prev) : updateFn;
+        if (!Array.isArray(nextSheet) || sheetsEqual(prev, nextSheet)) {
+          return prev;
+        }
+        if (!skipHistory) {
+          setUndoStack(stack => {
+            const nextUndo = [...stack, cloneSheet(prev)];
+            if (nextUndo.length > HISTORY_LIMIT) {
+              nextUndo.shift();
+            }
+            return nextUndo;
+          });
+          if (resetRedo) {
+            setRedoStack([]);
+          }
+        } else if (resetRedo) {
+          setRedoStack([]);
+        }
+        sheetDataRef.current = nextSheet;
+        return nextSheet;
+      });
+    },
+    [],
+  );
+
   const handleJsonSelected = file => {
     setJsonFile(file ?? null);
     setFeedback('');
     setConversionResult(null);
-    setSheetData([]);
+    loadSheetData([]);
     setPreviewRows([]);
     setPreviewIssues([]);
     setConfirmResult(null);
     setSheetName(file ? deriveSheetNameFromFile(file.name) : '');
+    setFindQuery('');
+    setReplaceValue('');
+    setMatchCase(false);
   };
 
-  const handleCellChange = useCallback((rowIndex, columnIndex, value) => {
-    setSheetData(prev => {
-      if (!prev.length) {
-        return prev;
-      }
-      const columnsCount = prev[0]?.length ?? 0;
-      const next = prev.map(row => [...row]);
-      if (!next[rowIndex]) {
-        next[rowIndex] = Array(columnsCount).fill('');
-      }
-      while (next[rowIndex].length < columnsCount) {
-        next[rowIndex].push('');
-      }
-      next[rowIndex][columnIndex] = value;
-      return next;
-    });
-  }, []);
+  const handleCellChange = useCallback(
+    (rowIndex, columnIndex, value) => {
+      commitSheetChange(prev => {
+        if (!prev.length) {
+          return prev;
+        }
+        const columnsCount = prev[0]?.length ?? 0;
+        const next = prev.map(row => (Array.isArray(row) ? [...row] : []));
+        if (!next[rowIndex]) {
+          next[rowIndex] = Array(columnsCount).fill('');
+        }
+        while (next[rowIndex].length < columnsCount) {
+          next[rowIndex].push('');
+        }
+        next[rowIndex][columnIndex] = value;
+        return next;
+      });
+    },
+    [commitSheetChange],
+  );
 
   const handleAddRow = useCallback(() => {
-    setSheetData(prev => {
+    commitSheetChange(prev => {
       const columnCount = prev[0]?.length ?? 0;
       if (!columnCount) {
         return prev;
@@ -316,32 +617,239 @@ function JsonToExcel() {
       const newRow = Array(columnCount).fill('');
       return [...prev, newRow];
     });
-  }, []);
+  }, [commitSheetChange]);
 
   const handleAddColumn = useCallback(() => {
-    setSheetData(prev => {
+    commitSheetChange(prev => {
       if (!prev.length) {
         return [['column_1'], []];
       }
-      const next = prev.map((row, rowIndex) => {
-        const clone = [...row];
+      return prev.map((row, rowIndex) => {
+        const clone = Array.isArray(row) ? [...row] : [];
         if (rowIndex === 0) {
-          clone.push(`column_${row.length + 1}`);
+          clone.push(`column_${clone.length + 1}`);
         } else {
           clone.push('');
         }
         return clone;
       });
-      return next;
     });
-  }, []);
+  }, [commitSheetChange]);
 
-  const toggleTransform = useCallback((current, transform) => {
-    if (current.includes(transform)) {
-      return current.filter(item => item !== transform);
+  const handleUndo = useCallback(() => {
+    setUndoStack(prev => {
+      if (!prev.length) {
+        return prev;
+      }
+      const nextUndo = [...prev];
+      const previousSheet = nextUndo.pop();
+      if (!Array.isArray(previousSheet)) {
+        return prev;
+      }
+      const safePrevious = cloneSheet(previousSheet);
+      setRedoStack(stack => {
+        const cloneCurrent = cloneSheet(sheetDataRef.current);
+        const nextRedo = [cloneCurrent, ...stack];
+        if (nextRedo.length > HISTORY_LIMIT) {
+          nextRedo.length = HISTORY_LIMIT;
+        }
+        return nextRedo;
+      });
+      resetFindContext();
+      setSheetData(safePrevious);
+      sheetDataRef.current = safePrevious;
+      return nextUndo;
+    });
+  }, [resetFindContext]);
+
+  const handleRedo = useCallback(() => {
+    setRedoStack(prev => {
+      if (!prev.length) {
+        return prev;
+      }
+      const [nextSheet, ...rest] = prev;
+      if (!Array.isArray(nextSheet)) {
+        return prev;
+      }
+      const safeNext = cloneSheet(nextSheet);
+      setUndoStack(stack => {
+        const cloneCurrent = cloneSheet(sheetDataRef.current);
+        const nextUndo = [...stack, cloneCurrent];
+        if (nextUndo.length > HISTORY_LIMIT) {
+          nextUndo.shift();
+        }
+        return nextUndo;
+      });
+      resetFindContext();
+      setSheetData(safeNext);
+      sheetDataRef.current = safeNext;
+      return rest;
+    });
+  }, [resetFindContext]);
+
+  useEffect(() => {
+    const handleKeyDown = event => {
+      if (!(event.ctrlKey || event.metaKey)) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      const isSheetInput = Boolean(target?.dataset?.cellRef);
+      if (!isSheetInput) {
+        return;
+      }
+      if (key === 'z' && !event.shiftKey) {
+        if (!undoStack.length) {
+          return;
+        }
+        event.preventDefault();
+        handleUndo();
+        return;
+      }
+      if (key === 'y' || (key === 'z' && event.shiftKey)) {
+        if (!redoStack.length) {
+          return;
+        }
+        event.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo, undoStack.length, redoStack.length]);
+
+  const handleFindNext = useCallback(() => {
+    if (!findQuery) {
+      updateFindStatus('Enter text to find.', 'error');
+      return;
     }
-    return [...current, transform];
-  }, []);
+    if (!sheetData.length) {
+      updateFindStatus('Sheet is empty.', 'error');
+      return;
+    }
+
+    const match = findMatchInSheet(sheetData, findQuery, matchCase, currentMatch);
+    if (!match) {
+      updateFindStatus('No matches found.', 'error');
+      setCurrentMatch(null);
+      setActiveCell(null);
+      return;
+    }
+
+    const nextMatch = { rowIndex: match.rowIndex, columnIndex: match.columnIndex };
+    setCurrentMatch(nextMatch);
+    setActiveCell({ row: match.rowIndex, column: match.columnIndex });
+
+    const humanRow = match.rowIndex + 1;
+    const humanColumn = match.columnIndex + 1;
+    const outOfView = match.rowIndex > MAX_VISIBLE_ROWS;
+    const prefix = match.wrapped ? 'Search wrapped to the top. ' : '';
+    const suffix = outOfView
+      ? ` Match at row ${humanRow}, column ${humanColumn} is outside the visible preview but will still be replaced.`
+      : ` Match at row ${humanRow}, column ${humanColumn}.`;
+
+    updateFindStatus(`${prefix}${suffix.trim()}`, 'info');
+  }, [findQuery, sheetData, matchCase, currentMatch, updateFindStatus]);
+
+  const handleReplaceCurrent = useCallback(() => {
+    if (!findQuery) {
+      updateFindStatus('Enter text to find.', 'error');
+      return;
+    }
+    if (!sheetData.length) {
+      updateFindStatus('Sheet is empty.', 'error');
+      return;
+    }
+
+    let target = currentMatch;
+    const needle = matchCase ? findQuery : findQuery.toLowerCase();
+    if (target) {
+      const cellValue = sheetData[target.rowIndex]?.[target.columnIndex];
+      const haystack = matchCase ? String(cellValue ?? '') : String(cellValue ?? '').toLowerCase();
+      if (!haystack.includes(needle)) {
+        target = null;
+      }
+    }
+
+    if (!target) {
+      const freshMatch = findMatchInSheet(sheetData, findQuery, matchCase, null);
+      if (!freshMatch) {
+        updateFindStatus('No matches found to replace.', 'error');
+        setCurrentMatch(null);
+        setActiveCell(null);
+        return;
+      }
+      target = { rowIndex: freshMatch.rowIndex, columnIndex: freshMatch.columnIndex };
+    }
+
+    const workingSheet = sheetData.map(row => (Array.isArray(row) ? [...row] : []));
+    const rowCopy = workingSheet[target.rowIndex] ?? [];
+    const result = replaceFirstInCell(rowCopy[target.columnIndex], findQuery, replaceValue, matchCase);
+    if (!result.changed) {
+      const nextMatch = findMatchInSheet(sheetData, findQuery, matchCase, target);
+      if (!nextMatch) {
+        updateFindStatus('No matches found to replace.', 'error');
+        setCurrentMatch(null);
+        setActiveCell(null);
+        return;
+      }
+      setCurrentMatch({ rowIndex: nextMatch.rowIndex, columnIndex: nextMatch.columnIndex });
+      setActiveCell({ row: nextMatch.rowIndex, column: nextMatch.columnIndex });
+      const humanRow = nextMatch.rowIndex + 1;
+      const humanColumn = nextMatch.columnIndex + 1;
+      updateFindStatus(`Match moved to row ${humanRow}, column ${humanColumn}.`, 'info');
+      return;
+    }
+
+    rowCopy[target.columnIndex] = result.value;
+    workingSheet[target.rowIndex] = rowCopy;
+    commitSheetChange(() => workingSheet);
+
+    const nextMatch = findMatchInSheet(workingSheet, findQuery, matchCase, target);
+    if (nextMatch) {
+      setCurrentMatch({ rowIndex: nextMatch.rowIndex, columnIndex: nextMatch.columnIndex });
+      setActiveCell({ row: nextMatch.rowIndex, column: nextMatch.columnIndex });
+      const humanRow = nextMatch.rowIndex + 1;
+      const humanColumn = nextMatch.columnIndex + 1;
+      const outOfView = nextMatch.rowIndex > MAX_VISIBLE_ROWS;
+      const suffix = outOfView
+        ? ` Next match at row ${humanRow}, column ${humanColumn} (outside visible preview).`
+        : ` Next match at row ${humanRow}, column ${humanColumn}.`;
+      updateFindStatus(`Replaced 1 occurrence.${suffix}`, 'success');
+    } else {
+      setCurrentMatch(null);
+      setActiveCell(null);
+      updateFindStatus('Replaced 1 occurrence. No more matches found.', 'success');
+    }
+  }, [findQuery, sheetData, matchCase, currentMatch, replaceValue, updateFindStatus, commitSheetChange]);
+
+  const handleReplaceAll = useCallback(() => {
+    if (!findQuery) {
+      updateFindStatus('Enter text to find.', 'error');
+      return;
+    }
+    if (!sheetData.length) {
+      updateFindStatus('Sheet is empty.', 'error');
+      return;
+    }
+
+    const { data: updatedSheet, total } = replaceAllInSheet(sheetData, findQuery, replaceValue, matchCase);
+    if (!total) {
+      updateFindStatus('No matches found.', 'error');
+      setCurrentMatch(null);
+      setActiveCell(null);
+      return;
+    }
+
+    commitSheetChange(() => updatedSheet);
+    setCurrentMatch(null);
+    setActiveCell(null);
+    updateFindStatus(`Replaced ${total} occurrence${total === 1 ? '' : 's'}.`, 'success');
+  }, [findQuery, sheetData, matchCase, replaceValue, updateFindStatus, commitSheetChange]);
 
   const fetchWorkbook = useCallback(async (downloadPath, targetSheet) => {
     if (!downloadPath) {
@@ -374,15 +882,62 @@ function JsonToExcel() {
         throw new Error('Excel sheet missing.');
       }
       const aoa = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-      if (aoa.length) {
-        setSheetData(aoa.map(row => row.map(cell => (cell === null || cell === undefined ? '' : cell))));
-      }
+      const sanitized = aoa.map(row => row.map(cell => (cell === null || cell === undefined ? '' : cell)));
+      loadSheetData(sanitized);
     } catch (err) {
       setFeedback(err instanceof Error ? err.message : 'Unable to read Excel.');
     } finally {
       setSheetLoading(false);
     }
-  }, []);
+  }, [loadSheetData]);
+
+  const processServerFile = async (filename) => {
+    const token = getToken();
+    if (!token) {
+      setFeedback('Session expired. Please log in again.');
+      return;
+    }
+
+    setConvertLoading(true);
+    setFeedback('');
+    setPreviewRows([]);
+    setPreviewIssues([]);
+    setConfirmResult(null);
+    setJsonFile(null); // Clear any manually selected file
+
+    try {
+      const form = new FormData();
+      form.append('filename', filename);
+      const derivedSheetName = deriveSheetNameFromFile(filename);
+      if (derivedSheetName) {
+        form.append('sheet_name', derivedSheetName);
+      }
+
+      const response = await fetch(`${API_BASE}/imports/process-server-file`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: form,
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(extractErrorMessage(payload, 'Failed to process server file.'));
+      }
+
+      const payload = await response.json();
+      setConversionResult(payload);
+      setSheetName(payload.sheet_name || derivedSheetName || '');
+      setJsonFile({ name: filename }); // Set a mock file object for UI consistency
+
+      await fetchWorkbook(payload.download_url, payload.sheet_name);
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Failed to process server file.');
+    } finally {
+      setConvertLoading(false);
+    }
+  };
 
   const downloadFileWithAuth = useCallback(async (downloadPath, fallbackName) => {
     if (!downloadPath) {
@@ -468,8 +1023,11 @@ function JsonToExcel() {
       const payload = await response.json();
       setConversionResult(payload);
       setSheetName(payload.sheet_name || sheetName || '');
-      if (Array.isArray(payload.preview_rows) && payload.preview_rows.length) {
-        setSheetData(payload.preview_rows.map(row => [...row]));
+      if (Array.isArray(payload.preview_rows)) {
+        const previewSheet = payload.preview_rows.map(row => (Array.isArray(row) ? [...row] : []));
+        loadSheetData(previewSheet);
+      } else {
+        loadSheetData([]);
       }
 
       await fetchWorkbook(payload.download_url, payload.sheet_name);
@@ -755,6 +1313,23 @@ function JsonToExcel() {
 
       const payload = await response.json();
       setConfirmResult(payload);
+
+      // If tasks were inserted, update the project's total_tasks_added count.
+      if (payload.inserted > 0) {
+        const incrementResponse = await fetch(
+          `${API_BASE}/tasks/admin/projects/${projectId}/increment-tasks?count=${payload.inserted}`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+        if (!incrementResponse.ok) {
+          // Log an error but don't block the user, as the main import was successful.
+          console.error('Failed to update project task count.');
+        }
+      }
       setPreviewIssues(Array.isArray(payload.errors) ? payload.errors : []);
     } catch (err) {
       setFeedback(err instanceof Error ? err.message : 'Import failed.');
@@ -841,7 +1416,7 @@ function JsonToExcel() {
                     disabled={convertLoading || !jsonFile}
                     className="inline-flex items-center justify-center rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
-                    {convertLoading ? 'Processing…' : 'Convert JSON to Excel'}
+                    {convertLoading ? 'Processing…' : 'Load Data from JSON'}
                   </button>
                 </div>
               </div>
@@ -883,6 +1458,24 @@ function JsonToExcel() {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
+                  onClick={handleUndo}
+                  disabled={!undoStack.length}
+                  className="inline-flex items-center justify-center rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  title="Undo (Ctrl+Z)"
+                >
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRedo}
+                  disabled={!redoStack.length}
+                  className="inline-flex items-center justify-center rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  title="Redo (Ctrl+Y)"
+                >
+                  Redo
+                </button>
+                <button
+                  type="button"
                   onClick={downloadEditedExcel}
                   disabled={!sheetData.length}
                   className="inline-flex items-center justify-center rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
@@ -907,6 +1500,77 @@ function JsonToExcel() {
 
             {sheetData.length ? (
               <div className="space-y-3">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div className="flex min-w-[12rem] flex-1 flex-col">
+                      <label className="text-xs font-medium text-slate-600">Find</label>
+                      <input
+                        value={findQuery}
+                        onChange={event => setFindQuery(event.target.value)}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            handleFindNext();
+                          }
+                        }}
+                        placeholder="Text to find"
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex min-w-[12rem] flex-1 flex-col">
+                      <label className="text-xs font-medium text-slate-600">Replace with</label>
+                      <input
+                        value={replaceValue}
+                        onChange={event => setReplaceValue(event.target.value)}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            handleReplaceCurrent();
+                          }
+                        }}
+                        placeholder="Replacement text"
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex flex-nowrap gap-2">
+                      <button
+                        type="button"
+                        onClick={handleFindNext}
+                        className="inline-flex items-center justify-center rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                      >
+                        Find next
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleReplaceCurrent}
+                        className="inline-flex items-center justify-center rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                      >
+                        Replace
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleReplaceAll}
+                        className="inline-flex items-center justify-center rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                      >
+                        Replace all
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-500">
+                    <label className="inline-flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={matchCase}
+                        onChange={event => setMatchCase(event.target.checked)}
+                      />
+                      Match case
+                    </label>
+                    {findStatus.message ? (
+                      <span className={findStatusToneClass}>{findStatus.message}</span>
+                    ) : null}
+                  </div>
+                </div>
+
                 <p className="text-xs text-slate-500">
                   Editing is applied directly above. Only the first {MAX_VISIBLE_ROWS} rows are visible for performance; additional rows will still be used for preview/import.
                 </p>
@@ -916,6 +1580,7 @@ function JsonToExcel() {
                   onAddRow={handleAddRow}
                   onAddColumn={handleAddColumn}
                   loading={sheetLoading}
+                  activeCell={activeCell}
                 />
               </div>
             ) : (
@@ -1287,7 +1952,30 @@ function TransformSelector({ options, selected, onToggle, disabled = false }) {
   );
 }
 
-function SheetGrid({ data, onCellChange, onAddRow, onAddColumn, loading }) {
+function SheetGrid({ data, onCellChange, onAddRow, onAddColumn, loading, activeCell }) {
+  const gridRef = useRef(null);
+
+  useEffect(() => {
+    if (!activeCell) {
+      return;
+    }
+    const container = gridRef.current;
+    if (!container) {
+      return;
+    }
+    const selector = `[data-cell-ref="cell-${activeCell.row}-${activeCell.column}"]`;
+    const target = container.querySelector(selector);
+    if (target && typeof target.focus === 'function') {
+      target.focus();
+      if (typeof target.select === 'function') {
+        target.select();
+      }
+      if (typeof target.scrollIntoView === 'function') {
+        target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+      }
+    }
+  }, [activeCell]);
+
   if (!data.length) {
     return null;
   }
@@ -1315,7 +2003,7 @@ function SheetGrid({ data, onCellChange, onAddRow, onAddColumn, loading }) {
         {loading ? <span className="text-xs text-slate-500">Loading sheet…</span> : null}
       </div>
 
-      <div className="overflow-auto rounded-xl border border-slate-200">
+      <div ref={gridRef} className="overflow-auto rounded-xl border border-slate-200">
         <table className="min-w-full text-sm">
           <thead>
             <tr className="bg-slate-100">
@@ -1323,9 +2011,14 @@ function SheetGrid({ data, onCellChange, onAddRow, onAddColumn, loading }) {
               {header.map((cell, columnIndex) => (
                 <th key={`header-${columnIndex}`} className="px-2 py-1 font-medium text-slate-600">
                   <input
+                    data-cell-ref={`cell-0-${columnIndex}`}
                     value={cell}
                     onChange={event => onCellChange(0, columnIndex, event.target.value)}
-                    className="w-full rounded border border-transparent bg-slate-200 px-2 py-1 text-xs focus:border-brand-400 focus:outline-none"
+                    className={`w-full rounded border bg-slate-200 px-2 py-1 text-xs focus:border-brand-400 focus:outline-none ${
+                      activeCell && activeCell.row === 0 && activeCell.column === columnIndex
+                        ? 'border-brand-500 bg-amber-50'
+                        : 'border-transparent'
+                    }`}
                   />
                 </th>
               ))}
@@ -1338,9 +2031,16 @@ function SheetGrid({ data, onCellChange, onAddRow, onAddColumn, loading }) {
                 {header.map((_, columnIndex) => (
                   <td key={`cell-${rowIndex}-${columnIndex}`} className="px-2 py-1">
                     <input
+                      data-cell-ref={`cell-${rowIndex + 1}-${columnIndex}`}
                       value={row[columnIndex] ?? ''}
                       onChange={event => onCellChange(rowIndex + 1, columnIndex, event.target.value)}
-                      className="w-full rounded border border-transparent bg-transparent px-2 py-1 text-xs focus:border-brand-400 focus:outline-none"
+                      className={`w-full rounded border bg-transparent px-2 py-1 text-xs focus:border-brand-400 focus:outline-none ${
+                        activeCell
+                        && activeCell.row === rowIndex + 1
+                        && activeCell.column === columnIndex
+                          ? 'border-brand-500 bg-amber-50'
+                          : 'border-transparent'
+                      }`}
                     />
                   </td>
                 ))}

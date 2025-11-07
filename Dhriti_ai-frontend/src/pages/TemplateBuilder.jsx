@@ -37,7 +37,47 @@ const PRESETS = {
   },
   Timer: { w: 200, h: 80, props: { duration: 60 } },
   Submit: { w: 200, h: 70, props: { label: 'Submit' } },
+  RadioButtons: {
+    w: 460,
+    h: 120,
+    props: { options: ['Option 1', 'Option 2'], selected: null },
+  },
+  Checkbox: {
+    w: 460,
+    h: 120,
+    props: { options: ['Check 1', 'Check 2'], selected: [] },
+  },
+  WorkingTimer: {
+    w: 200,
+    h: 80,
+    props: { duration: 60, running: false },
+  },
+  Text: {
+    w: 400,
+    h: 100,
+    props: { content: 'Enter your text here' },
+  },
+  Questions: {
+    w: 580,
+    h: 150,
+    props: { question: 'Rate the quality of the response', selected: null },
+  },
+  Comments: {
+    w: 460,
+    h: 120,
+    props: { placeholder: 'Add your comment here...', value: '' },
+  },
+  Discard: {
+    w: 300,
+    h: 100,
+    props: {},
+  },
 };
+
+const DATA_MODES = Object.freeze({
+  BATCH: 'batch',
+  PROJECT: 'project',
+});
 
 const DEFAULT_SAMPLE_ROW = `{
   "task_id":"T-101",
@@ -168,8 +208,11 @@ function uid() {
 }
 
 function TemplateBuilderApp() {
-  const [sources, setSources] = useState([]);
-  const [selectedSource, setSelectedSource] = useState('');
+  const [dataMode, setDataMode] = useState(DATA_MODES.PROJECT);
+  const [batchSources, setBatchSources] = useState([]);
+  const [projectSources, setProjectSources] = useState([]);
+  const [selectedBatchId, setSelectedBatchId] = useState('');
+  const [selectedProjectId, setSelectedProjectId] = useState('');
   const [availableFields, setAvailableFields] = useState([]);
   const [sourceLoading, setSourceLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -218,12 +261,12 @@ function TemplateBuilderApp() {
   const historyRef = useRef([]);
   const redoStackRef = useRef([]);
 
-  const refreshSources = useCallback(async () => {
+  const refreshBatchSources = useCallback(async () => {
     const token = getToken();
     if (!token) {
       setSourceError('Session expired. Please log in again.');
-      setSources([]);
-      setSelectedSource('');
+      setBatchSources([]);
+      setSelectedBatchId('');
       setAvailableFields([]);
       setSampleRow(DEFAULT_SAMPLE_ROW);
       return;
@@ -249,8 +292,8 @@ function TemplateBuilderApp() {
         throw new Error(detail);
       }
       const list = Array.isArray(payload) ? payload : [];
-      setSources(list);
-      setSelectedSource(prev => {
+      setBatchSources(list);
+      setSelectedBatchId(prev => {
         if (prev && list.some(item => item.batch_id === prev)) {
           return prev;
         }
@@ -267,12 +310,66 @@ function TemplateBuilderApp() {
     }
   }, []);
 
-  useEffect(() => {
-    refreshSources();
-  }, [refreshSources]);
+  const refreshProjectSources = useCallback(async () => {
+    const token = getToken();
+    if (!token) {
+      setSourceError('Session expired. Please log in again.');
+      setProjectSources([]);
+      setSelectedProjectId('');
+      setAvailableFields([]);
+      setSampleRow(DEFAULT_SAMPLE_ROW);
+      return;
+    }
+
+    setSourceLoading(true);
+    setSourceError('');
+
+    try {
+      const response = await fetch(`${API_BASE}/tasks/admin/project-template-sources`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch (error) {
+        payload = null;
+      }
+      if (!response.ok) {
+        const detail = payload?.detail || 'Failed to load project template sources.';
+        throw new Error(detail);
+      }
+      const list = Array.isArray(payload) ? payload : [];
+      setProjectSources(list);
+      setSelectedProjectId(prev => {
+        if (prev && list.some(item => String(item.project_id) === String(prev))) {
+          return prev;
+        }
+        return list.length > 0 ? String(list[0].project_id) : '';
+      });
+      if (list.length === 0) {
+        setAvailableFields([]);
+        setSampleRow(DEFAULT_SAMPLE_ROW);
+      }
+    } catch (error) {
+      setSourceError(error instanceof Error ? error.message : 'Unable to load project template sources.');
+    } finally {
+      setSourceLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    if (!selectedSource) {
+    if (dataMode === DATA_MODES.BATCH) {
+      refreshBatchSources();
+    } else {
+      refreshProjectSources();
+    }
+  }, [dataMode, refreshBatchSources, refreshProjectSources]);
+
+  useEffect(() => {
+    const selection = dataMode === DATA_MODES.BATCH ? selectedBatchId : selectedProjectId;
+    if (!selection) {
       setAvailableFields([]);
       setSampleRow(DEFAULT_SAMPLE_ROW);
       return;
@@ -290,7 +387,11 @@ function TemplateBuilderApp() {
       setDetailLoading(true);
       setSourceError('');
       try {
-        const response = await fetch(`${API_BASE}/tasks/admin/template-sources/${selectedSource}`, {
+        const endpoint =
+          dataMode === DATA_MODES.BATCH
+            ? `${API_BASE}/tasks/admin/template-sources/${selection}`
+            : `${API_BASE}/tasks/admin/project-template-sources/${selection}`;
+        const response = await fetch(endpoint, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -326,7 +427,7 @@ function TemplateBuilderApp() {
     fetchDetail();
 
     return () => controller.abort();
-  }, [selectedSource]);
+  }, [dataMode, selectedBatchId, selectedProjectId]);
 
   const snapshot = useCallback(
     () =>
@@ -428,6 +529,11 @@ function TemplateBuilderApp() {
     if (type === 'Submit') return ['label'];
     if (type === 'Timer') return ['duration'];
     if (type === 'Options4' || type === 'Options5') return ['source'];
+    if (type === 'RadioButtons' || type === 'Checkbox') return ['options'];
+    if (type === 'WorkingTimer') return ['duration', 'running'];
+    if (type === 'Text') return ['content'];
+    if (type === 'Questions') return ['question'];
+    if (type === 'Comments') return ['placeholder', 'value'];
     return [];
   }, []);
 
@@ -447,7 +553,7 @@ function TemplateBuilderApp() {
 
   useEffect(() => {
     setSaveBanner(null);
-  }, [selectedSource]);
+  }, [dataMode, selectedBatchId, selectedProjectId]);
 
   useEffect(() => {
     const block = blocks.find(item => item.id === admComp);
@@ -704,6 +810,12 @@ function TemplateBuilderApp() {
           if (block.id !== id) {
             return block;
           }
+          if (block.type === 'Checkbox') {
+            const selected = block.props.selected.includes(index)
+              ? block.props.selected.filter(i => i !== index)
+              : [...block.props.selected, index];
+            return { ...block, props: { ...block.props, selected } };
+          }
           const current = block.props.selected;
           const next = current === index ? null : index;
           return { ...block, props: { ...block.props, selected: next } };
@@ -722,9 +834,15 @@ function TemplateBuilderApp() {
     return Math.max(900, maxBottom + 800);
   }, [blocks]);
 
-  const activeSource = useMemo(
-    () => sources.find(item => item.batch_id === selectedSource) || null,
-    [sources, selectedSource],
+  const activeBatch = useMemo(
+    () => batchSources.find(item => item.batch_id === selectedBatchId) || null,
+    [batchSources, selectedBatchId],
+  );
+
+  const activeProject = useMemo(
+    () =>
+      projectSources.find(item => String(item.project_id) === String(selectedProjectId)) || null,
+    [projectSources, selectedProjectId],
   );
 
   const addRule = () => {
@@ -744,7 +862,7 @@ function TemplateBuilderApp() {
       if (!column) {
         setSaveBanner({
           type: 'error',
-          message: 'No Excel columns available. Import a dataset and select it before binding.',
+          message: 'No data fields available. Import or select a dataset before binding.',
           templateId: null,
         });
         return;
@@ -778,10 +896,10 @@ function TemplateBuilderApp() {
     if (savingTemplate) {
       return;
     }
-    if (!selectedSource) {
+    if (!selectedProjectId) {
       setSaveBanner({
         type: 'error',
-        message: 'Select an imported Excel batch before saving the template.',
+        message: 'Select a project before saving the template.',
         templateId: null,
       });
       return;
@@ -808,7 +926,7 @@ function TemplateBuilderApp() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          batch_id: selectedSource,
+          project_id: Number(selectedProjectId),
           name: templateName.trim() || 'Untitled Template',
           layout: layoutPayload,
           rules: rulesPayload,
@@ -844,7 +962,7 @@ function TemplateBuilderApp() {
     } finally {
       setSavingTemplate(false);
     }
-  }, [adminRules, blocks, savingTemplate, selectedSource, templateName]);
+  }, [adminRules, blocks, savingTemplate, selectedProjectId, templateName]);
 
   const exportProfile = () => {
     const data = JSON.stringify({ blocks, rules: adminRules }, null, 2);
@@ -857,6 +975,14 @@ function TemplateBuilderApp() {
   };
 
   const inputProps = inputStyle();
+  const canSaveTemplate = Boolean(selectedProjectId);
+  const saveButtonDisabled = savingTemplate || !canSaveTemplate;
+  const saveButtonTitle = (() => {
+    if (!selectedProjectId) {
+      return 'Select a project to enable saving';
+    }
+    return 'Save template to backend';
+  })();
 
   return (
     <div style={styles.app} className="app">
@@ -902,13 +1028,13 @@ function TemplateBuilderApp() {
             style={{
               ...buttonStyle,
               ...primaryButtonStyle,
-              opacity: savingTemplate || !selectedSource ? 0.6 : 1,
-              cursor: savingTemplate || !selectedSource ? 'not-allowed' : 'pointer',
+              opacity: saveButtonDisabled ? 0.6 : 1,
+              cursor: saveButtonDisabled ? 'not-allowed' : 'pointer',
             }}
             onClick={handleSaveTemplate}
             type="button"
-            disabled={savingTemplate || !selectedSource}
-            title={selectedSource ? 'Save template to backend' : 'Select a data source to enable saving'}
+            disabled={saveButtonDisabled}
+            title={saveButtonTitle}
           >
             {savingTemplate ? 'Saving…' : 'Save Template'}
           </button>
@@ -939,6 +1065,31 @@ function TemplateBuilderApp() {
             </button>
             <button style={buttonStyle} onClick={() => addBlock('Submit')} type="button">
               + Submit
+            </button>
+            <button style={{ ...buttonStyle, background: '#4ade80' }} onClick={() => addBlock('RadioButtons')} type="button">
+              + Radio Buttons
+            </button>
+            <button style={{ ...buttonStyle, background: '#60a5fa' }} onClick={() => addBlock('Checkbox')} type="button">
+              + Checkbox
+            </button>
+            <button style={{ ...buttonStyle, background: '#f87171' }} onClick={() => addBlock('WorkingTimer')} type="button">
+              + Working Timer
+            </button>
+            <button style={{ ...buttonStyle, background: '#fbbf24' }} onClick={() => addBlock('Text')} type="button">
+              + Text
+            </button>
+            <button style={{ ...buttonStyle, background: '#a78bfa' }} onClick={() => addBlock('Questions')} type="button">
+              + Questions
+            </button>
+            <button style={{ ...buttonStyle, background: '#fca5a5' }} onClick={() => addBlock('Comments')} type="button">
+              + Comments
+            </button>
+            <button
+              style={{ ...buttonStyle, background: '#f87171' }}
+              onClick={() => addBlock('Discard')}
+              type="button"
+            >
+              + Discard
             </button>
           </div>
           <div style={{ ...mutedStyle, marginTop: 8 }}>
@@ -1025,22 +1176,68 @@ function TemplateBuilderApp() {
           ) : null}
 
           <div style={{ display: 'grid', gap: 8, margin: '12px 0' }}>
-            <label>
-              Data source (Excel batch)
-              <select
-                value={selectedSource}
-                onChange={event => setSelectedSource(event.target.value)}
-                style={inputProps}
-                disabled={sourceLoading}
-              >
-                <option value="">Select a batch…</option>
-                {sources.map(source => (
-                  <option key={source.batch_id} value={source.batch_id}>
-                    {`${source.original_file || source.batch_id} · ${source.row_count} rows`}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <fieldset style={{ border: 'none', padding: 0, margin: 0 }}>
+              <legend style={{ ...mutedStyle, marginBottom: 6 }}>Data mode</legend>
+              <div style={{ display: 'flex', gap: 16 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input
+                    type="radio"
+                    name="data-mode"
+                    value={DATA_MODES.PROJECT}
+                    checked={dataMode === DATA_MODES.PROJECT}
+                    onChange={() => setDataMode(DATA_MODES.PROJECT)}
+                  />
+                  Project tasks
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input
+                    type="radio"
+                    name="data-mode"
+                    value={DATA_MODES.BATCH}
+                    checked={dataMode === DATA_MODES.BATCH}
+                    onChange={() => setDataMode(DATA_MODES.BATCH)}
+                  />
+                  Imported batch
+                </label>
+              </div>
+            </fieldset>
+
+            {dataMode === DATA_MODES.BATCH ? (
+              <label>
+                Imported batch
+                <select
+                  value={selectedBatchId}
+                  onChange={event => setSelectedBatchId(event.target.value)}
+                  style={inputProps}
+                  disabled={sourceLoading}
+                >
+                  <option value="">Select a batch…</option>
+                  {batchSources.map(source => (
+                    <option key={source.batch_id} value={source.batch_id}>
+                      {`${source.original_file || source.batch_id} · ${source.row_count} rows`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label>
+                Project data
+                <select
+                  value={selectedProjectId}
+                  onChange={event => setSelectedProjectId(event.target.value)}
+                  style={inputProps}
+                  disabled={sourceLoading}
+                >
+                  <option value="">Select a project…</option>
+                  {projectSources.map(source => (
+                    <option key={source.project_id} value={String(source.project_id)}>
+                      {`${source.project_name} · ${source.total_tasks} tasks`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <button
                 style={{
@@ -1049,22 +1246,35 @@ function TemplateBuilderApp() {
                   cursor: sourceLoading ? 'not-allowed' : 'pointer',
                 }}
                 type="button"
-                onClick={refreshSources}
+                onClick={dataMode === DATA_MODES.BATCH ? refreshBatchSources : refreshProjectSources}
                 disabled={sourceLoading}
               >
                 {sourceLoading ? 'Refreshing…' : 'Refresh list'}
               </button>
-              {detailLoading ? <span style={mutedStyle}>Loading schema…</span> : null}
+              {detailLoading ? <span style={mutedStyle}>Loading fields…</span> : null}
             </div>
-            {activeSource ? (
+
+            {dataMode === DATA_MODES.BATCH ? (
+              activeBatch ? (
+                <div style={mutedStyle}>
+                  {(activeBatch.original_file || 'Imported batch')} · {activeBatch.row_count} rows · Status: {activeBatch.status}
+                </div>
+              ) : (
+                <div style={mutedStyle}>
+                  Upload the task Excel via the Task Import tool, then refresh this list.
+                </div>
+              )
+            ) : activeProject ? (
               <div style={mutedStyle}>
-                {(activeSource.original_file || 'Imported batch')} · {activeSource.row_count} rows · Status: {activeSource.status}
+                {activeProject.project_name} · {activeProject.total_tasks} tasks · Latest task{' '}
+                {activeProject.latest_task_at ? new Date(activeProject.latest_task_at).toLocaleString() : '—'}
               </div>
             ) : (
               <div style={mutedStyle}>
-                Upload the task Excel via the Task Import tool, then refresh this list.
+                Import or ingest task data for a project, then refresh this list.
               </div>
             )}
+
             {sourceError ? <div style={errorStyle}>{sourceError}</div> : null}
           </div>
 
@@ -1113,7 +1323,7 @@ function TemplateBuilderApp() {
                   checked={admSrcKind === 'EXCEL_COLUMN'}
                   onChange={() => setAdmSrcKind('EXCEL_COLUMN')}
                 />
-                {' Excel column'}
+                {' Data field'}
               </label>
               <label>
                 <input
@@ -1130,7 +1340,7 @@ function TemplateBuilderApp() {
 
           {admSrcKind === 'EXCEL_COLUMN' ? (
             <label>
-              Excel column
+              Data field
               <select
                 value={admExcelCol}
                 onChange={event => setAdmExcelCol(event.target.value)}
@@ -1138,7 +1348,7 @@ function TemplateBuilderApp() {
                 disabled={availableFields.length === 0}
               >
                 {availableFields.length === 0 ? (
-                  <option value="">No columns detected</option>
+                  <option value="">No fields detected</option>
                 ) : (
                   availableFields.map(header => (
                     <option key={header} value={header}>
@@ -1284,23 +1494,23 @@ function BlockView({
 
   const titleText =
     block.type === 'Title'
-      ? resolve('text', block.props.text ?? '')
+      ? resolve('text', block.props?.text ?? '')
       : null;
   const imageSrc =
     block.type === 'Image'
-      ? resolve('src', block.props.src ?? '')
+      ? resolve('src', block.props?.src ?? '')
       : null;
   const audioSrc =
     block.type === 'Audio'
-      ? resolve('src', block.props.src ?? '')
+      ? resolve('src', block.props?.src ?? '')
       : null;
   const buttonLabel =
     block.type === 'Submit'
-      ? resolve('label', block.props.label ?? 'Submit')
+      ? resolve('label', block.props?.label ?? 'Submit')
       : null;
   const duration =
     block.type === 'Timer'
-      ? Number(resolve('duration', block.props.duration ?? 60))
+      ? Number(resolve('duration', block.props?.duration ?? 60))
       : null;
 
   let optionsFromBinding = null;
@@ -1313,6 +1523,28 @@ function BlockView({
         .filter(Boolean);
     }
   }
+
+  const radioOptions =
+    block.type === 'RadioButtons' ? resolve('options', block.props?.options) : null;
+  const checkboxOptions =
+    block.type === 'Checkbox' ? resolve('options', block.props?.options) : null;
+  const workingTimer =
+    block.type === 'WorkingTimer'
+      ? { duration: resolve('duration', block.props?.duration), running: resolve('running', block.props?.running) }
+      : null;
+  const textContent = block.type === 'Text' ? resolve('content', block.props?.content) : null;
+  const questionData =
+    block.type === 'Questions'
+      ? { question: resolve('question', block.props?.question), options: ['Excellent', 'Good', 'Fair', 'Poor', 'Bad'] }
+      : null;
+
+  const commentData =
+    block.type === 'Comments'
+      ? { placeholder: resolve('placeholder', block.props?.placeholder), value: resolve('value', block.props?.value) }
+      : null;
+
+  const [rating, setRating] = useState(null);
+  const [discard, setDiscard] = useState(false);
 
   return (
     <div style={baseStyle} onMouseDown={onMouseDown}>
@@ -1391,6 +1623,37 @@ function BlockView({
           })}
         </div>
       ) : null}
+      {block.type === 'RadioButtons' ? (
+        <div style={{ ...styles.options, gridTemplateColumns: '1fr' }}>
+          {radioOptions.map((option, index) => (
+            <label key={index} style={{ ...styles.opt, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="radio"
+                name={`radio-${block.id}`}
+                checked={block.props.selected === index}
+                onChange={() => onToggleOption(block.id, index)}
+                style={{ cursor: 'pointer' }}
+              />
+              {option}
+            </label>
+          ))}
+        </div>
+      ) : null}
+      {block.type === 'Checkbox' ? (
+        <div style={{ ...styles.options, gridTemplateColumns: '1fr' }}>
+          {checkboxOptions.map((option, index) => (
+            <label key={index} style={{ ...styles.opt, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={block.props.selected.includes(index)}
+                onChange={() => onToggleOption(block.id, index)}
+                style={{ cursor: 'pointer' }}
+              />
+              {option}
+            </label>
+          ))}
+        </div>
+      ) : null}
       {block.type === 'Submit' ? (
         <div
           style={{
@@ -1427,6 +1690,152 @@ function BlockView({
           {formatSeconds(duration || 60)}
         </div>
       ) : null}
+      {block.type === 'WorkingTimer' ? (
+        <div
+          style={{
+            display: 'grid',
+            placeItems: 'center',
+            height: '100%',
+            fontVariantNumeric: 'tabular-nums',
+            fontSize: 26,
+          }}
+        >
+          {formatSeconds(workingTimer.duration)}
+          <button
+            style={{ marginTop: 8, ...buttonStyle, background: workingTimer.running ? '#34d399' : '#fca5a5' }}
+            onClick={() => {
+              setBlocks(prev =>
+                prev.map(b =>
+                  b.id === block.id
+                    ? {
+                        ...b,
+                        props: {
+                          ...b.props,
+                          running: !b.props.running,
+                        },
+                      }
+                    : b,
+                ),
+              );
+            }}
+          >
+            {workingTimer.running ? 'Pause' : 'Start'}
+          </button>
+        </div>
+      ) : null}
+      {block.type === 'Text' ? (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center', 
+            height: '100%',
+            padding: 10,
+            fontSize: 16,
+            textAlign: 'center',
+          }}
+        >
+          {textContent}
+        </div>
+      ) : null}
+      {block.type === 'Questions' ? (
+        <div
+          style={{
+            border: '1px solid #1f2a44',
+            borderRadius: '14px',
+            padding: '16px',
+            boxShadow: '0 6px 16px rgba(0,0,0,.25)',
+            background: 'rgba(14,22,42,.92)',
+          }}
+        >
+          <div
+            style={{
+              fontWeight: '600',
+              marginBottom: '8px',
+              color: '#eaf1ff',
+            }}
+          >
+            {questionData.question}
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: '12px',
+            }}
+          >
+            {questionData.options.map(opt => (
+              <label
+                key={opt}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '12px',
+                  border: `1px solid ${rating === opt ? '#34d399' : '#1f2a44'}`,
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  background: rating === opt ? 'rgba(52,211,153,0.1)' : 'rgba(14,22,42,.65)',
+                  transition: 'opacity 0.2s ease',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.opacity = '0.9')}
+                onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+              >
+                <input
+                  type="radio"
+                  name={`question-${block.id}`}
+                  value={opt}
+                  checked={rating === opt}
+                  onChange={() => setRating(opt)}
+                  style={{ marginRight: '8px' }}
+                />
+                <span style={{ fontSize: '14px', color: '#eaf1ff' }}>{opt}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {block.type === 'Comments' ? (
+        <textarea
+          style={{
+            width: '100%',
+            height: '100%',
+            padding: 10,
+            border: '1px solid #1f2a44',
+            borderRadius: 10,
+            background: '#0d1830',
+            color: '#eaf1ff',
+          }}
+          placeholder={commentData.placeholder}
+          value={commentData.value}
+          readOnly // Value is controlled by Inspector
+        />
+      ) : null}
+      {block.type === 'Discard' ? (
+        <div className="p-4 max-w-md mx-auto border rounded-2xl shadow-sm bg-[#0d1830]">
+          <div className="flex items-center justify-between mb-6">
+            <div className="text-sm font-medium">Discard</div>
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => setDiscard(false)}
+                className={`px-3 py-2 rounded-lg border ${
+                  !discard ? "bg-green-600 border-green" : "bg-[#0d1830]"
+                }`}
+              >
+                No
+              </button>
+              <button
+                onClick={() => setDiscard(true)}
+                className={`px-3 py-2 rounded-lg border ${
+                  discard ? "bg-red-500 border-red-300" : "bg-[#0d1830]"
+                }`}
+              >
+                Yes
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {selected
         ? ['nw', 'ne', 'sw', 'se'].map(direction => (
             <div
@@ -1456,6 +1865,11 @@ function Inspector({ block, onChange }) {
   const [src, setSrc] = useState(block.props.src || '');
   const [label, setLabel] = useState(block.props.label || '');
   const [duration, setDuration] = useState(block.props.duration || 60);
+  const [options, setOptions] = useState(block.props.options || []);
+  const [content, setContent] = useState(block.props.content || '');
+  const [question, setQuestion] = useState(block.props.question || '');
+  const [placeholder, setPlaceholder] = useState(block.props.placeholder || '');
+  const [value, setValue] = useState(block.props.value || '');
 
   useEffect(() => {
     setX(block.frame.x);
@@ -1466,6 +1880,11 @@ function Inspector({ block, onChange }) {
     setSrc(block.props.src || '');
     setLabel(block.props.label || '');
     setDuration(block.props.duration || 60);
+    setOptions(block.props.options || []);
+    setContent(block.props.content || '');
+    setQuestion(block.props.question || '');
+    setPlaceholder(block.props.placeholder || '');
+    setValue(block.props.value || '');
   }, [block]);
 
   const muted = { color: '#9fb0d8', fontSize: 12 };
@@ -1477,6 +1896,11 @@ function Inspector({ block, onChange }) {
 
   const handlePropChange = (prop, value) => {
     onChange({ ...block, props: { ...block.props, [prop]: value } });
+  };
+
+  const handleOptionsChange = newOptions => {
+    setOptions(newOptions);
+    onChange({ ...block, props: { ...block.props, options: newOptions } });
   };
 
   return (
@@ -1573,6 +1997,67 @@ function Inspector({ block, onChange }) {
           }}
         />
       ) : null}
+
+      {block.type === 'RadioButtons' || block.type === 'Checkbox' ? (
+        <LabeledText
+          label="Options (comma-separated)"
+          value={options.join(', ')}
+          onChange={value =>
+            handleOptionsChange(value.split(',').map(opt => opt.trim()))
+          }
+        />
+      ) : null}
+
+      {block.type === 'WorkingTimer' ? (
+        <LabeledNumber
+          label="Duration (s)"
+          value={block.props.duration}
+          onChange={value =>
+            onChange({ ...block, props: { ...block.props, duration: value } })
+          }
+        />
+      ) : null}
+
+      {block.type === 'Text' ? (
+        <LabeledText
+          label="Content"
+          value={content}
+          onChange={value => {
+            setContent(value);
+            onChange({ ...block, props: { ...block.props, content: value } });
+          }}
+        />
+      ) : null}
+      {block.type === 'Questions' ? (
+        <LabeledText
+          label="Question"
+          value={question}
+          onChange={value => {
+            setQuestion(value);
+            handlePropChange('question', value);
+          }}
+        />
+      ) : null}
+      {block.type === 'Comments' ? (
+        <>
+          <LabeledText
+            label="Placeholder"
+            value={placeholder}
+            onChange={value => {
+              setPlaceholder(value);
+              handlePropChange('placeholder', value);
+            }}
+          />
+          <LabeledText
+            label="Comment Value"
+            value={value}
+            onChange={newValue => {
+              setValue(newValue);
+              handlePropChange('value', newValue);
+            }}
+          />
+        </>
+      ) : null}
     </div>
   );
 }
@@ -1628,7 +2113,7 @@ function TemplateBuilder() {
     <div className="min-h-screen bg-slate-50 md:flex">
       <Sidebar />
       <main className="flex-1 min-w-0">
-        <Topbar />
+      
         <div className="p-0 md:p-6">
           <div className="rounded-2xl border border-slate-200 bg-slate-900 shadow-lg overflow-hidden">
             <TemplateBuilderApp />

@@ -27,8 +27,22 @@ class TemplateSourceDetail(TemplateSourceSummary):
     preview_rows: List[dict[str, Any]] = Field(default_factory=list)
 
 
+class ProjectTemplateSourceSummary(BaseModel):
+    project_id: int
+    project_name: str
+    status: Optional[str] = None
+    total_tasks: int
+    latest_task_at: Optional[datetime] = None
+    sample_fields: List[str] = Field(default_factory=list)
+
+
+class ProjectTemplateSourceDetail(ProjectTemplateSourceSummary):
+    schema: List[TemplateField] = Field(default_factory=list)
+    preview_rows: List[dict[str, Any]] = Field(default_factory=list)
+
+
 class TemplateCreateRequest(BaseModel):
-    batch_id: Optional[UUID]
+    project_id: int
     name: str
     layout: List[dict[str, Any]]
     rules: List[dict[str, Any]]
@@ -43,21 +57,24 @@ class TemplateCreateRequest(BaseModel):
 
 class TemplateResponse(BaseModel):
     id: UUID
-    batch_id: Optional[UUID]
+    project_id: int
     name: str
     layout: List[dict[str, Any]]
     rules: List[dict[str, Any]]
     created_at: datetime
     updated_at: datetime
+    created_by: Optional[int] = None
 
 
 class TemplateTask(BaseModel):
     id: UUID
-    batch_id: Optional[UUID]
+    project_id: int
+    task_id: Optional[str] = None
     task_name: Optional[str] = None
     file_name: Optional[str] = None
-    s3_url: Optional[str] = None
     payload: Optional[dict[str, Any]] = None
+    status: Optional[str] = None
+    created_at: Optional[datetime] = None
 
 
 class TemplateTasksResponse(BaseModel):

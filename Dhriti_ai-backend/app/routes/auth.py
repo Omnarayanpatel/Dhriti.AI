@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app import database
 from app.models.user import User, UserProfile
 from app.schemas.user import LoginRequest, UserCreate
-from app.utils import security
+from app.utils import audit, security
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -46,6 +46,16 @@ def login(request: LoginRequest, db: Session = Depends(database.get_db)):
     user = db.query(User).filter(User.email == request.email).first()
     if not user or not security.verify_password(request.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid credentials")
+
+    # Create an audit log for the successful login
+    audit.create_audit_log(
+        db,
+        user=user,  # Pass the user object from the database
+        action="USER_LOGIN",
+        target_entity="User",
+        target_id=str(user.id),
+    )
+    db.commit()
 
     token = security.create_access_token(data={"sub": user.email, "role": user.role})
     return {"access_token": token, "token_type": "bearer", "role": user.role}

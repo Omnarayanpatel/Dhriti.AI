@@ -50,6 +50,8 @@ function Login() {
 
         if (userRole === 'admin') {
           navigate('/dashboard');
+        } else if (userRole === 'client') {
+          navigate('/client/dashboard');
         } else if (['user', 'expert', 'vendor'].includes(userRole)) {
           navigate('/tasks');
         } else {

@@ -48,8 +48,6 @@ class ImportBatch(Base):
     excel_schema = Column(JSONB, nullable=True)
 
     tasks = relationship("ImportedTask", back_populates="batch")
-    templates = relationship("TaskTemplate", back_populates="batch")
-
     __table_args__ = (
         CheckConstraint(
             "status IN ('PENDING','RUNNING','COMPLETED','FAILED')",

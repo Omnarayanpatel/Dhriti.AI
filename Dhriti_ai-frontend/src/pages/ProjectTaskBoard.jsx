@@ -1,23 +1,17 @@
-import React, { useEffect } from 'react'
-import { NavLink, useLocation, useNavigate, useParams } from 'react-router-dom'
+import React, { useEffect, useState } from 'react'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import Sidebar from '../components/Sidebar.jsx'
 import Topbar from '../components/Topbar.jsx'
-import TaskTab from './project-board/TaskTab.jsx'
-import ConfigTab from './project-board/ConfigTab.jsx'
-import {
-  CONFIG_SUBTABS,
-  MOCK_CONFIGS,
-  MOCK_TASKS,
-  NAV_TABS,
-  STATUS_FILTERS,
-} from './project-board/data.js'
+import { getToken } from '../utils/auth.js'
+
+const API_BASE = 'http://localhost:8000'
 
 function formatProjectName(slug) {
   if (!slug) return 'Untitled Project'
   const replaced = slug.replace(/[-_]+/g, ' ')
   return replaced
     .split(' ')
-    .map(token => (token.length <= 3 ? token.toUpperCase() : token[0].toUpperCase() + token.slice(1)))
+    .map(token => token.charAt(0).toUpperCase() + token.slice(1))
     .join(' ')
 }
 
@@ -26,37 +20,47 @@ export default function ProjectTaskBoard() {
   const navigate = useNavigate()
   const location = useLocation()
 
+  const [tasks, setTasks] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
   const preservedState = location.state
   const projectFromState = preservedState?.project
   const projectName = projectFromState?.name || formatProjectName(projectId)
   const projectStatus = projectFromState?.status || 'Active'
 
   useEffect(() => {
-    const tabExists = NAV_TABS.some(tab => tab.id === tabId)
-    if (!tabId || !tabExists) {
-      navigate(`/projects/${projectId}/board/task`, {
-        replace: true,
-        state: preservedState,
-      })
-    }
-  }, [tabId, projectId, navigate, preservedState])
+    async function fetchProjectTasks() {
+      setLoading(true)
+      setError('')
+      const token = getToken()
+      if (!token) {
+        setError('You need to log in to view project tasks.')
+        setLoading(false)
+        return
+      }
 
-  const activeTabId = NAV_TABS.some(tab => tab.id === tabId) ? tabId : 'task'
-  const activeTab = NAV_TABS.find(tab => tab.id === activeTabId) ?? NAV_TABS[0]
+      try {
+        const response = await fetch(`${API_BASE}/tasks/admin/projects/${projectId}/tasks`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
 
-  const renderActiveTab = () => {
-    if (activeTabId === 'task') {
-      return <TaskTab tasks={MOCK_TASKS} statusFilters={STATUS_FILTERS} />
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}))
+          throw new Error(payload.detail || 'Unable to load project tasks.')
+        }
+
+        const data = await response.json()
+        setTasks(Array.isArray(data) ? data : [])
+      } catch (err) {
+        setError(err.message)
+      } finally {
+        setLoading(false)
+      }
     }
-    if (activeTabId === 'config') {
-      return <ConfigTab categories={CONFIG_SUBTABS} configs={MOCK_CONFIGS} />
-    }
-    return (
-      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-10 text-center text-sm text-slate-500">
-        {activeTab.label} view coming soon.
-      </div>
-    )
-  }
+
+    fetchProjectTasks()
+  }, [projectId])
 
   return (
     <div className="min-h-screen bg-slate-50 md:flex">
@@ -73,7 +77,7 @@ export default function ProjectTaskBoard() {
             Back to Projects
           </button>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-4 md:p-6 shadow-sm space-y-6">
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 md:p-6 shadow-sm">
             <header className="space-y-3">
               <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
                 <button
@@ -96,27 +100,54 @@ export default function ProjectTaskBoard() {
                 </span>
               </div>
 
-              <nav className="flex flex-wrap gap-2 text-sm">
-                {NAV_TABS.map(tab => (
-                  <NavLink
-                    key={tab.id}
-                    to={`/projects/${projectId}/board/${tab.id}`}
-                    state={preservedState}
-                    className={({ isActive }) =>
-                      `rounded-full px-3 py-1.5 transition ${
-                        isActive
-                          ? 'bg-blue-600 text-white shadow'
-                          : 'border border-slate-200 text-slate-600 hover:border-blue-400 hover:text-blue-600'
-                      }`
-                    }
-                  >
-                    {tab.label}
-                  </NavLink>
-                ))}
-              </nav>
+              <div className="pt-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-slate-800">Tasks ({loading ? '...' : tasks.length})</h2>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/tools/json-to-excel?project_id=${projectId}`)}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600"
+                >
+                  Import Tasks
+                </button>
+              </div>
             </header>
 
-            {renderActiveTab()}
+            <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
+              <table className="min-w-full border-collapse text-sm">
+                <thead className="bg-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="p-3">Task ID</th>
+                    <th className="p-3">Task Name</th>
+                    <th className="p-3">File Name</th>
+                    <th className="p-3">Allocated To</th>
+                    <th className="p-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {loading ? (
+                    <tr><td colSpan="4" className="p-6 text-center text-slate-500">Loading tasks…</td></tr>
+                  ) : error ? (
+                    <tr><td colSpan="4" className="p-6 text-center text-red-600">{error}</td></tr>
+                  ) : tasks.length === 0 ? (
+                    <tr><td colSpan="4" className="p-6 text-center text-slate-500">No tasks found for this project.</td></tr>
+                  ) : (
+                    tasks.map(task => (
+                      <tr key={task.task_id || task.id} className="hover:bg-slate-50">
+                        <td className="p-3 font-mono text-xs">{task.task_id || 'N/A'}</td>
+                        <td className="p-3 font-medium">{task.task_name || 'N/A'}</td>
+                        <td className="p-3">{task.file_name || 'N/A'}</td>
+                        <td className="p-3">{task.email || <span className="text-slate-400">Not Allocated</span>}</td>
+                        <td className="p-3">
+                          <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
+                            {task.status || 'NEW'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </section>
         </div>
       </main>

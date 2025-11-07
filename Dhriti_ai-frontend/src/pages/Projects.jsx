@@ -47,6 +47,8 @@ function Projects() {
           status: p.status,
         }))
         setRows(mapped)
+        // The API now returns the correct structure, so no mapping is needed.
+        setRows(Array.isArray(data) ? data : [])
       } catch (err) {
         setError(err.message)
       } finally {
@@ -99,7 +101,7 @@ function Projects() {
       status: f.get('status') || undefined,
       avg_task_time_minutes: f.get('avg_time') ? Number(f.get('avg_time')) : undefined,
       completed_tasks: f.get('completed') ? Number(f.get('completed')) : undefined,
-      pending_tasks: f.get('pending') ? Number(f.get('pending')) : undefined,
+      total_task_assign: f.get('total_assign') ? Number(f.get('total_assign')) : undefined,
     }
 
     try {
@@ -142,7 +144,7 @@ function Projects() {
               <p className="text-slate-500">Manage and track project progress</p>
             </div>
             <div className="flex gap-2">
-              <button onClick={() => setUploadOpen(true)} className="px-3 py-2 rounded-lg border hover:bg-slate-50">Upload Data</button>
+              <button onClick={() => navigate('/tools/json-to-excel')} className="px-3 py-2 rounded-lg border hover:bg-slate-50">Upload Data</button>
               <button onClick={() => navigate('/projects/new')} className="px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700">Add Project</button>
             </div>
           </div>
@@ -175,11 +177,14 @@ function Projects() {
                         <div className="flex items-center gap-3">
                           <button
                             type="button"
-                            onClick={() => openAssignModal(project)}
+                            onClick={() =>
+                              navigate(`/projects/${project.id}/board/task`, {
+                                state: { project },
+                              })
+                            }
                             className="flex size-8 items-center justify-center rounded-full border border-slate-200 text-lg text-slate-400 transition hover:border-brand-500 hover:text-brand-600"
-                            aria-label={`Assign ${project.name}`}
                           >
-                            ›
+                            #
                           </button>
                           <div>
                             <div className="font-medium text-slate-900">{project.name}</div>
@@ -196,7 +201,9 @@ function Projects() {
                       </td>
                       <td className="p-4 align-middle font-medium">{(project.total_tasks_added ?? 0).toLocaleString()}</td>
                       <td className="p-4 align-middle font-medium text-emerald-600">{(project.total_tasks_completed ?? 0).toLocaleString()}</td>
-                      <td className="p-4 align-middle text-slate-600">{project.association ? project.association.toUpperCase() : '—'}</td>
+                      <td className="p-4 align-middle text-slate-600">
+                        {project.association === 'Client' && project.client_email ? project.client_email : 'Admin'}
+                      </td>
                       <td className="p-4">
                         <div className="flex justify-end gap-2">
                           <button
@@ -276,8 +283,8 @@ function Projects() {
                   <input name="completed" type="number" min="0" className="w-full px-3 py-2 rounded-lg border" placeholder="Optional" />
                 </div>
                 <div>
-                  <label className="block text-sm mb-1">Pending Tasks</label>
-                  <input name="pending" type="number" min="0" className="w-full px-3 py-2 rounded-lg border" placeholder="Optional" />
+                  <label className="block text-sm mb-1">Total Tasks to Assign</label>
+                  <input name="total_assign" type="number" min="0" className="w-full px-3 py-2 rounded-lg border" placeholder="Optional" />
                 </div>
               </div>
               <div className="flex justify-end gap-2">
@@ -307,5 +314,3 @@ function Projects() {
 }
 
 export default Projects
-
-

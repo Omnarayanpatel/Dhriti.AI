@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Sidebar from '../components/Sidebar.jsx'
 import Topbar from '../components/Topbar.jsx'
@@ -27,9 +27,30 @@ const initialForm = {
 
 function AddProject() {
   const [form, setForm] = useState(initialForm)
+  const [clients, setClients] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    const fetchClients = async () => {
+      const token = getToken();
+      if (!token) return;
+      try {
+        const response = await fetch(`${API_BASE}/tasks/admin/users`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) {
+          throw new Error('Could not fetch client list.');
+        }
+        const allUsers = await response.json();
+        setClients(allUsers.filter(user => user.role === 'client'));
+      } catch (err) {
+        setError(err.message);
+      }
+    };
+    fetchClients();
+  }, []);
 
   const handleChange = field => event => {
     const { type, checked, value } = event.target
@@ -39,12 +60,25 @@ function AddProject() {
     }))
   }
 
+  // Reset client_id if association changes from 'Client'
+  useEffect(() => {
+    if (form.association !== 'Client') {
+      setForm(prev => ({ ...prev, clientId: '' }));
+    }
+  }, [form.association]);
+
   const handleSubmit = async event => {
     event.preventDefault()
     const trimmedName = form.name.trim()
     if (!trimmedName) {
       setError('Project name is required.')
       return
+    }
+
+    // If association is 'Client', ensure a client is selected.
+    if (form.association === 'Client' && !form.clientId) {
+      setError('Please select a client for the project.');
+      return;
     }
 
     setError('')
@@ -66,7 +100,8 @@ function AddProject() {
         default_avg_task_time_minutes: form.taskTime ? Number(form.taskTime) : null,
         review_time_minutes: form.reviewTime ? Number(form.reviewTime) : null,
         max_users_per_task: form.maxUsers ? Number(form.maxUsers) : null,
-        association: form.association.trim() ? form.association.trim() : null,
+        client_id: form.association === 'Client' && form.clientId ? Number(form.clientId) : null,
+        association: form.association,
         auto_submit_task: form.autoSubmit,
         allow_reviewer_edit: form.reviewerEdit,
         allow_reviewer_push_back: form.reviewerPushBack,
@@ -187,12 +222,30 @@ function AddProject() {
                 </div>
                 <div className="md:col-span-1">
                   <label className="block text-sm font-medium text-slate-600">Association</label>
-                  <input
+                  <select
                     value={form.association}
                     onChange={handleChange('association')}
-                    placeholder="e.g. Admin, Client, Internal"
                     className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-slate-400 focus:outline-none"
-                  />
+                  >
+                    <option value="Admin">Admin (Internal)</option>
+                    <option value="Client">Client</option>
+                  </select>
+                </div>
+                <div className={`md:col-span-1 transition-opacity duration-300 ${form.association === 'Client' ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                  <label className="block text-sm font-medium text-slate-600">Client</label>
+                  <select
+                    value={form.clientId}
+                    onChange={handleChange('clientId')}
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-slate-400 focus:outline-none"
+                    disabled={form.association !== 'Client'}
+                  >
+                    <option value="">Select a client</option>
+                    {clients.map(client => (
+                      <option key={client.id} value={client.id}>
+                        {client.email}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="md:col-span-1">
                   <label className="block text-sm font-medium text-slate-600">Task Type</label>

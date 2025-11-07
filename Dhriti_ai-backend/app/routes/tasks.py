@@ -1,5 +1,6 @@
 import json
 import os
+from . import export_routes
 import tempfile
 from pathlib import Path
 from typing import List, Optional
@@ -10,11 +11,16 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app import database
+from app.models.task_annotation import TaskAnnotation
+from app.models.project_template import ProjectTemplate
+from app.models.project_task import ProjectTask
 from app.models.project import Project, ProjectAssignment, TaskReview
 from app.models.user import User
 from app.routes.protected import get_current_user
 from app.schemas.tasks import (
     AssignedProject,
+    AnnotationCreate,
+    AnnotationResponse,
     ProjectAssignmentRequest,
     ProjectAssignmentResponse,
     ProjectCreate,
@@ -25,10 +31,13 @@ from app.schemas.tasks import (
     UserSummary,
 )
 from app.schemas.token import TokenData
+from app.utils.audit import create_audit_log
 from tools.json_to_excel import json_to_excel
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
+# Include the router for exporting task outputs
+router.include_router(export_routes.router)
 
 def require_admin(current_user: TokenData = Depends(get_current_user)) -> TokenData:
     if current_user.role != "admin":
@@ -55,14 +64,36 @@ def get_tasks_dashboard(
         .subquery()
     )
 
+    # Subquery to get the latest template_id for each project
+    latest_template_subquery = (
+        db.query(
+            ProjectTemplate.project_id,
+            func.max(ProjectTemplate.created_at).label("max_created_at"),
+        )
+        .group_by(ProjectTemplate.project_id)
+        .subquery()
+    )
+
+    template_id_subquery = (
+        db.query(ProjectTemplate.id, ProjectTemplate.project_id)
+        .join(
+            latest_template_subquery,
+            (ProjectTemplate.project_id == latest_template_subquery.c.project_id)
+            & (ProjectTemplate.created_at == latest_template_subquery.c.max_created_at),
+        )
+        .subquery()
+    )
+
     assignment_rows = (
         db.query(
             ProjectAssignment,
             Project,
             reviews_avg_subquery.c.avg_rating,
+            template_id_subquery.c.id.label("template_id"),
         )
         .join(Project, ProjectAssignment.project_id == Project.id)
         .outerjoin(reviews_avg_subquery, reviews_avg_subquery.c.project_id == Project.id)
+        .outerjoin(template_id_subquery, template_id_subquery.c.project_id == Project.id)
         .filter(ProjectAssignment.user_id == user.id)
         .all()
     )
@@ -71,27 +102,27 @@ def get_tasks_dashboard(
     total_completed = 0
     total_pending = 0
 
-    for assignment, project, avg_rating in assignment_rows:
+    for assignment, project, avg_rating, template_id in assignment_rows:
         avg_minutes = assignment.avg_task_time_minutes
         if avg_minutes is None:
             avg_minutes = project.default_avg_task_time_minutes
 
+        assigned_project = AssignedProject(
+            assignment_id=assignment.id,
+            project_id=project.id,
+            project_name=project.name,
+            avg_task_time_minutes=avg_minutes,
+            avg_task_time_label=f"{avg_minutes} minutes" if avg_minutes is not None else None,
+            rating=round(float(avg_rating), 2) if avg_rating is not None else None,
+            completed_tasks=assignment.completed_tasks or 0,
+            pending_tasks=assignment.pending_tasks or 0,
+            status=assignment.status or project.status or "Active",
+            template_id=template_id,
+        )
+        assignments.append(assigned_project)
+
         total_completed += assignment.completed_tasks or 0
         total_pending += assignment.pending_tasks or 0
-
-        assignments.append(
-            AssignedProject(
-                assignment_id=assignment.id,
-                project_id=project.id,
-                project_name=project.name,
-                avg_task_time_minutes=avg_minutes,
-                avg_task_time_label=f"{avg_minutes} minutes" if avg_minutes is not None else None,
-                rating=round(float(avg_rating), 2) if avg_rating is not None else None,
-                completed_tasks=assignment.completed_tasks or 0,
-                pending_tasks=assignment.pending_tasks or 0,
-                status=assignment.status or project.status or "Active",
-            )
-        )
 
     overall_avg_rating = (
         db.query(func.avg(TaskReview.rating))
@@ -133,6 +164,64 @@ def get_tasks_dashboard(
         recent_reviews=recent_reviews,
     )
 
+@router.post(
+    "/{task_id}/annotations",
+    response_model=AnnotationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Submit annotations for a task",
+)
+def submit_task_annotations(
+    task_id: str,
+    payload: AnnotationCreate,
+    current_user: TokenData = Depends(get_current_user),
+    db: Session = Depends(database.get_db),
+):
+    user = db.query(User).filter(User.email == current_user.email).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if task_id != payload.task_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task ID mismatch in URL and payload.")
+
+    # Check if an annotation for this task by this user already exists
+    existing_annotation = (
+        db.query(TaskAnnotation)
+        .filter(TaskAnnotation.task_id == task_id, TaskAnnotation.user_id == user.id)
+        .first()
+    )
+    if existing_annotation:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You have already submitted this task.")
+
+    
+    annotation = TaskAnnotation(
+        task_id=payload.task_id,
+        user_id=user.id,
+        project_id=payload.project_id,
+        template_id=payload.template_id,
+        annotations=payload.annotations,
+        status="completed",
+    )
+    db.add(annotation)
+
+    # Increment the total_tasks_completed count on the project
+    project = db.query(Project).filter(Project.id == payload.project_id).first()
+    if project:
+        project.total_tasks_completed = (project.total_tasks_completed or 0) + 1
+
+    # Decrement pending_tasks and increment completed_tasks for the user's assignment
+    assignment = (
+        db.query(ProjectAssignment)
+        .filter(ProjectAssignment.project_id == payload.project_id, ProjectAssignment.user_id == user.id)
+        .first()
+    )
+    if assignment:
+        new_completed = (assignment.completed_tasks or 0) + 1
+        assignment.completed_tasks = new_completed
+        assignment.pending_tasks = max(0, assignment.total_task_assign - new_completed)
+    db.commit()
+    db.refresh(annotation)
+    return annotation
+
 
 @router.post(
     "/admin/projects",
@@ -147,6 +236,9 @@ def create_project(
     existing = db.query(Project).filter(Project.name == payload.name).first()
     if existing:
         raise HTTPException(status_code=400, detail="Project with this name already exists")
+
+    # If client_id is 0 or not provided, treat it as an internal project (NULL)
+    client_id = payload.client_id if payload.client_id and payload.client_id > 0 else None
 
     project = Project(
         name=payload.name,
@@ -165,9 +257,18 @@ def create_project(
         allow_reviewer_feedback=payload.allow_reviewer_feedback,
         reviewer_screen_mode=payload.reviewer_screen_mode,
         reviewer_guidelines=payload.reviewer_guidelines,
+        client_id=client_id,
     )
     db.add(project)
     db.commit()
+
+    create_audit_log(
+        db,
+        user=_,
+        action="CREATE_PROJECT",
+        target_entity="Project",
+        target_id=str(project.id),
+    )
     db.refresh(project)
     return project
 
@@ -177,41 +278,77 @@ def list_projects(
     _: TokenData = Depends(require_admin),
     db: Session = Depends(database.get_db),
 ):
-    totals_subquery = (
-        db.query(
-            ProjectAssignment.project_id.label("project_id"),
-            (
-                func.coalesce(func.sum(ProjectAssignment.completed_tasks), 0)
-                + func.coalesce(func.sum(ProjectAssignment.pending_tasks), 0)
-            ).label("total_tasks_added"),
-            func.coalesce(func.sum(ProjectAssignment.completed_tasks), 0).label(
-                "total_tasks_completed"
-            ),
-        )
-        .group_by(ProjectAssignment.project_id)
-        .subquery()
-    )
+    # With the new columns, we can query the Project model directly.
+    projects = db.query(Project).order_by(Project.name.asc()).all()
 
-    rows = (
-        db.query(Project, totals_subquery.c.total_tasks_added, totals_subquery.c.total_tasks_completed)
-        .outerjoin(totals_subquery, totals_subquery.c.project_id == Project.id)
-        .order_by(Project.name.asc())
-        .all()
-    )
+    client_ids = {p.client_id for p in projects if p.client_id}
+    clients = db.query(User).filter(User.id.in_(client_ids)).all() if client_ids else []
+    client_map = {client.id: client.email for client in clients}
 
     result: list[ProjectResponse] = []
-    for project, total_added, total_completed in rows:
-        total_tasks_added = int(total_added or 0)
-        total_tasks_completed = int(total_completed or 0)
+    for project in projects:
+        # The values now come directly from the project object.
+        total_tasks_added = project.total_tasks_added or 0
+        total_tasks_completed = project.total_tasks_completed or 0
+
+        client_email = client_map.get(project.client_id)
+
+        # Create the response, which already includes the new fields from the model.
         payload = ProjectResponse.from_orm(project).copy(
             update={
                 "total_tasks_added": total_tasks_added,
                 "total_tasks_completed": total_tasks_completed,
             }
         )
-        result.append(payload)
+        response_data = payload.model_dump()
+        response_data["client_email"] = client_email
+        result.append(ProjectResponse(**response_data))
 
     return result
+
+@router.post("/admin/projects/{project_id}/increment-tasks", status_code=status.HTTP_204_NO_CONTENT)
+def increment_project_tasks(
+    project_id: int,
+    count: int,
+    _: TokenData = Depends(require_admin),
+    db: Session = Depends(database.get_db),
+):
+    """
+    An endpoint to increment the total_tasks_added for a project.
+    This should be called after tasks are successfully imported/added.
+    """
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    project.total_tasks_added = (project.total_tasks_added or 0) + count
+    db.commit()
+
+@router.get("/admin/projects/{project_id}/tasks", status_code=status.HTTP_200_OK)
+def get_project_tasks(
+    project_id: int,
+    _: TokenData = Depends(require_admin),
+    db: Session = Depends(database.get_db),
+):
+    """
+    An endpoint to get all tasks for a given project, including allocation info.
+    """
+    # 1. Get all users assigned to this project
+    assignments = (
+        db.query(User.email)
+        .join(ProjectAssignment, User.id == ProjectAssignment.user_id)
+        .filter(ProjectAssignment.project_id == project_id)
+        .all()
+    )
+    # Get the email of the first assigned user, if any
+    allocated_email = assignments[0].email if assignments else None
+
+    # 2. Get all tasks for the project
+    tasks = db.query(ProjectTask).filter(ProjectTask.project_id == project_id).all()
+
+    # 3. Add the allocation email to each task object
+    # Pydantic models from SQLAlchemy are not directly mutable, so we convert to dict
+    return [{**task.__dict__, "email": allocated_email} for task in tasks]
 
 
 @router.get("/admin/users", response_model=List[UserSummary])
@@ -268,6 +405,8 @@ def assign_project_to_user(
         assignment = ProjectAssignment(
             user_id=payload.user_id,
             project_id=payload.project_id,
+            completed_tasks=0,  # Set initial value
+            pending_tasks=0,    # Set initial value
         )
         db.add(assignment)
 
@@ -279,15 +418,12 @@ def assign_project_to_user(
     if payload.avg_task_time_minutes is not None:
         assignment.avg_task_time_minutes = payload.avg_task_time_minutes
 
-    if payload.completed_tasks is not None:
-        assignment.completed_tasks = payload.completed_tasks
-    elif assignment.completed_tasks is None:
-        assignment.completed_tasks = 0
+    # Set total assigned tasks and completed tasks
+    assignment.total_task_assign = payload.total_task_assign or assignment.total_task_assign or 0
+    assignment.completed_tasks = payload.completed_tasks or assignment.completed_tasks or 0
 
-    if payload.pending_tasks is not None:
-        assignment.pending_tasks = payload.pending_tasks
-    elif assignment.pending_tasks is None:
-        assignment.pending_tasks = 0
+    # Pending tasks are now calculated, not set directly
+    assignment.pending_tasks = max(0, assignment.total_task_assign - assignment.completed_tasks)
 
     db.commit()
     db.refresh(assignment)

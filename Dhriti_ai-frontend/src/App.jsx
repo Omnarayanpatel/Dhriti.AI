@@ -10,9 +10,11 @@ import ProjectTaskBoard from './pages/ProjectTaskBoard.jsx';
 import ProtectedRoute from './components/ProtectedRoute';
 import HomeRedirect from './components/HomeRedirect.jsx';
 import JsonToExcel from './pages/JsonToExcel.jsx';
-import TaskImport from './pages/TaskImport.jsx';
 import TemplateBuilder from './pages/TemplateBuilder.jsx';
 import TaskTemplatePlayer from './pages/TaskTemplatePlayer.jsx';
+import DownloadOutput from './pages/DownloadOutput.jsx'; // Import the new component
+import ClientDashboard from './pages/ClientDashboard.jsx';
+import ClientUploads from './pages/ClientUploads.jsx';
 
 function App() {
   return (
@@ -100,10 +102,35 @@ function App() {
         }
       />
       <Route
-        path="/tools/task-import"
+        path="/templates/:templateId/play"
+        element={
+          <ProtectedRoute allowedRoles={['user', 'expert', 'vendor', 'admin']}>
+            <TaskTemplatePlayer />
+          </ProtectedRoute>
+        }
+        />
+      {/* Download Output Route */}
+      <Route
+        path="/tools/download-outputs"
         element={
           <ProtectedRoute allowedRoles={['admin']}>
-            <TaskImport />
+            <DownloadOutput />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/client/dashboard"
+        element={
+          <ProtectedRoute allowedRoles={['client']}>
+            <ClientDashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tools/client-uploads"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <ClientUploads />
           </ProtectedRoute>
         }
       />

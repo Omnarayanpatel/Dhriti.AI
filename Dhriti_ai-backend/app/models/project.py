@@ -12,6 +12,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 
 from app.database import Base
 
@@ -19,6 +20,7 @@ from app.database import Base
 class Project(Base):
     __tablename__ = "projects"
 
+    client_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, nullable=False)
     status = Column(String, default="Active", nullable=False)
@@ -36,12 +38,26 @@ class Project(Base):
     allow_reviewer_feedback = Column(Boolean, default=True, nullable=False)
     reviewer_screen_mode = Column(String, default="full", nullable=False)
     reviewer_guidelines = Column(Text, nullable=True)
+    total_tasks_added = Column(Integer, nullable=False, default=0, server_default="0")
+    total_tasks_completed = Column(Integer, nullable=False, default=0, server_default="0")
+
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    client = relationship("User", back_populates="projects")
 
     assignments = relationship(
         "ProjectAssignment", back_populates="project", cascade="all, delete-orphan"
     )
     reviews = relationship(
         "TaskReview", back_populates="project", cascade="all, delete-orphan"
+    )
+    templates = relationship(
+        "ProjectTemplate", back_populates="project", cascade="all, delete-orphan"
+    )
+
+    tasks = relationship(
+        "ProjectTask", back_populates="project", cascade="all, delete-orphan"
     )
 
 
@@ -53,6 +69,7 @@ class ProjectAssignment(Base):
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     avg_task_time_minutes = Column(Integer, nullable=True)
     completed_tasks = Column(Integer, default=0, nullable=False)
+    total_task_assign = Column(Integer, default=0, nullable=False)
     pending_tasks = Column(Integer, default=0, nullable=False)
     status = Column(String, default="Active", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
