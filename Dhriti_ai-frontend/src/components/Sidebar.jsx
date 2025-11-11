@@ -93,6 +93,8 @@ function Sidebar() {
                 {navItem({ to: '/tools/template-builder', label: 'Template Builder' })}
                 {navItem({ to: '/tools/json-to-excel', label: 'Task Import Pipeline' })}
                 {navItem({ to: '/tools/client-uploads', label: 'Client Uploads' })}
+                {navItem({ to: '/tools/image-annotator', label: 'Image Annotator' })}
+                {navItem({ to: '/tools/text-annotator', label: 'Text Annotator' })}
                 {navItem({ to: '/tools/download-outputs', label: 'Download Outputs' })}
               </div>
             </details>

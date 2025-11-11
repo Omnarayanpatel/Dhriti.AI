@@ -14,7 +14,9 @@ import TemplateBuilder from './pages/TemplateBuilder.jsx';
 import TaskTemplatePlayer from './pages/TaskTemplatePlayer.jsx';
 import DownloadOutput from './pages/DownloadOutput.jsx'; // Import the new component
 import ClientDashboard from './pages/ClientDashboard.jsx';
+import ImageAnnotator from './pages/ImageAnnotation.jsx';
 import ClientUploads from './pages/ClientUploads.jsx';
+import TextAnnotator from './pages/TextAnnotation.jsx';
 
 function App() {
   return (
@@ -101,14 +103,6 @@ function App() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/templates/:templateId/play"
-        element={
-          <ProtectedRoute allowedRoles={['user', 'expert', 'vendor', 'admin']}>
-            <TaskTemplatePlayer />
-          </ProtectedRoute>
-        }
-        />
       {/* Download Output Route */}
       <Route
         path="/tools/download-outputs"
@@ -131,6 +125,22 @@ function App() {
         element={
           <ProtectedRoute allowedRoles={['admin']}>
             <ClientUploads />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tools/image-annotator/:taskId?"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <ImageAnnotator />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tools/text-annotator"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <TextAnnotator />
           </ProtectedRoute>
         }
       />

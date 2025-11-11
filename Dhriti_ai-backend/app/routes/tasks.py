@@ -1,10 +1,11 @@
 import json
 import os
 from . import export_routes
-import tempfile
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+from uuid import UUID
 
+from pydantic import BaseModel
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import func
@@ -33,6 +34,31 @@ from app.schemas.tasks import (
 from app.schemas.token import TokenData
 from app.utils.audit import create_audit_log
 from tools.json_to_excel import json_to_excel
+import tempfile
+
+
+# --- New Pydantic Models for Auto-Template Generation ---
+class MappingRule(BaseModel):
+    component_type: str
+    target_prop: str
+    source_path: str
+
+class AutoTemplateRequest(BaseModel):
+    rules: List[MappingRule]
+
+# --- New Pydantic Model for a single ProjectTask ---
+class ProjectTaskResponse(BaseModel):
+    id: UUID
+    project_id: int
+    task_id: str
+    task_name: str
+    file_name: str
+    status: str
+    payload: Dict[str, Any]
+
+    class Config:
+        from_attributes = True
+
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -323,6 +349,70 @@ def increment_project_tasks(
 
     project.total_tasks_added = (project.total_tasks_added or 0) + count
     db.commit()
+
+@router.post("/admin/projects/{project_id}/autogenerate-template", status_code=status.HTTP_201_CREATED)
+def autogenerate_project_template(
+    project_id: int,
+    payload: AutoTemplateRequest,
+    _: TokenData = Depends(require_admin),
+    db: Session = Depends(database.get_db),
+):
+    """
+    Generates a simple UI template for a project based on mapping rules.
+    This is used for just-in-time template creation from the annotation UI.
+    """
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    layout = []
+    rules = []
+    y_pos = 60
+
+    for rule in payload.rules:
+        comp_id = f"comp_{rule.component_type.lower()}_{len(layout)}"
+        layout.append({
+            "id": comp_id,
+            "type": rule.component_type,
+            "frame": {"x": 60, "y": y_pos, "w": 640, "h": 480 if rule.component_type == "Image" else 60},
+            "props": {},
+        })
+        rules.append({
+            "component_key": comp_id,
+            "target_prop": rule.target_prop,
+            "source_kind": "TASK_PAYLOAD", # Use TASK_PAYLOAD for direct mapping from the task's data
+            "source_path": rule.source_path,
+        })
+        y_pos += (480 if rule.component_type == "Image" else 60) + 20
+
+    creator = db.query(User).filter(User.email == _.email).first()
+
+    template = ProjectTemplate(
+        project_id=project_id, 
+        name=f"Auto-generated for {project.name}", 
+        layout=layout, rules=rules,
+        created_by=creator.id if creator else None
+    )
+    db.add(template)
+    db.commit()
+    return {"message": "Template created successfully", "template_id": template.id}
+
+@router.get("/admin/projects/{project_id}/sample-task", response_model=ProjectTaskResponse)
+def get_project_sample_task(
+    project_id: int,
+    _: TokenData = Depends(require_admin),
+    db: Session = Depends(database.get_db),
+):
+    """
+    Fetches the first task for a given project to be used as a sample.
+    """
+    task = db.query(ProjectTask).filter(ProjectTask.project_id == project_id).first()
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No tasks found for this project to use as a sample.",
+        )
+    return task
 
 @router.get("/admin/projects/{project_id}/tasks", status_code=status.HTTP_200_OK)
 def get_project_tasks(
