@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -11,7 +12,6 @@ from app import database
 from app.models.project import Project
 from app.models.project_task import ProjectTask
 from app.models.project_template import ProjectTemplate
-from app.models.task_import import ImportBatch, ImportedTask
 from app.models.user import User
 from app.routes.protected import get_current_user
 from app.schemas.template_builder import (

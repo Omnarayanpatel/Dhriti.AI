@@ -54,11 +54,18 @@ function AddProject() {
 
   const handleChange = field => event => {
     const { type, checked, value } = event.target
-    setForm(prev => ({
-      ...prev,
-      [field]: type === 'checkbox' ? checked : value,
-    }))
-  }
+    setForm(prev => {
+      const newState = {
+        ...prev,
+        [field]: type === 'checkbox' ? checked : value,
+      };
+      // If projectType is being changed and it's not 'annotation', reset taskType.
+      if (field === 'projectType' && value !== 'annotation') {
+        newState.taskType = '';
+      }
+      return newState;
+    });
+  };
 
   // Reset client_id if association changes from 'Client'
   useEffect(() => {
@@ -78,6 +85,12 @@ function AddProject() {
     // If association is 'Client', ensure a client is selected.
     if (form.association === 'Client' && !form.clientId) {
       setError('Please select a client for the project.');
+      return;
+    }
+
+    // If project type is 'Annotation', ensure a task type is selected.
+    if (form.projectType === 'annotation' && !form.taskType) {
+      setError('Please select a Task Type for Annotation projects.');
       return;
     }
 
@@ -249,12 +262,26 @@ function AddProject() {
                 </div>
                 <div className="md:col-span-1">
                   <label className="block text-sm font-medium text-slate-600">Task Type</label>
-                  <input
-                    value={form.taskType}
-                    onChange={handleChange('taskType')}
-                    placeholder="Enter task type"
-                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-slate-400 focus:outline-none"
-                  />
+                  {form.projectType === 'annotation' ? (
+                    <select
+                      value={form.taskType}
+                      onChange={handleChange('taskType')}
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-slate-400 focus:outline-none"
+                    >
+                      <option value="">Select task type</option>
+                      <option value="Text Annotation">Text Annotation</option>
+                      <option value="Image Annotation">Image Annotation</option>
+                      <option value="Audio Annotation">Audio Annotation</option>
+                      <option value="Video Annotation">Video Annotation</option>
+                    </select>
+                  ) : (
+                    <input
+                      value={form.taskType}
+                      onChange={handleChange('taskType')}
+                      placeholder="Enter task type"
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-slate-400 focus:outline-none"
+                    />
+                  )}
                 </div>
                 <div className="md:col-span-1">
                   <label className="block text-sm font-medium text-slate-600">Task Time (in mins)</label>
