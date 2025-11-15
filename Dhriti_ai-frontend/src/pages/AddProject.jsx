@@ -164,7 +164,7 @@ function AddProject() {
           </div>
 
           <div className="space-y-2">
-            <h1 className="text-2xl font-semibold">Add Project</h1>
+            <h1 className="text-2xl font-semibold">Let's create a new project!</h1>
             <p className="text-slate-500">Configure a new project with reviewer controls and timing defaults.</p>
           </div>
 
@@ -230,7 +230,7 @@ function AddProject() {
                     <option value="">Select project type</option>
                     <option value="annotation">Annotation</option>
                     <option value="review">Review</option>
-                    <option value="collection">Collection</option>
+                  
                   </select>
                 </div>
                 <div className="md:col-span-1">

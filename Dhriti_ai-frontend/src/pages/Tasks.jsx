@@ -4,6 +4,8 @@ import Sidebar from '../components/Sidebar.jsx';
 import Topbar from '../components/Topbar.jsx';
 import { getToken } from '../utils/auth.js';
 
+const API_BASE = 'http://localhost:8000';
+
 function StatCard({ label, value, sub }) {
   return (
     <div className="rounded-2xl border bg-white p-4 shadow-sm">
@@ -44,6 +46,7 @@ export default function Tasks() {
   const [recentReviews, setRecentReviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [startError, setStartError] = useState(''); // For errors when starting a task
   const [page, setPage] = useState(1);
 
   const PAGE_SIZE = 100;
@@ -61,7 +64,7 @@ export default function Tasks() {
 
       try {
         setLoading(true);
-        setError('');
+        setError(''); setStartError('');
         const response = await fetch('http://localhost:8000/tasks/dashboard', {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -123,9 +126,41 @@ export default function Tasks() {
   const showingFrom = filtered.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const showingTo = filtered.length === 0 ? 0 : Math.min(page * PAGE_SIZE, filtered.length);
 
-  const handleStart = (templateId) => {
-    // Navigate to TaskTemplatePlayer with the templateId
-    navigate(`/templates/${templateId}/play`);
+  const handleStart = async (assignment) => {
+    setStartError(''); // Clear previous errors
+
+    // If the task type is Image Annotation, fetch the next task and go to the specialized tool.
+    if (assignment.task_type === 'Image Annotation') {
+      const token = getToken();
+      try {
+        const response = await fetch(`${API_BASE}/tasks/projects/${assignment.project_id}/next-task`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (response.status === 404) {
+          setStartError('No available tasks for this project right now. Please try again later.');
+          return;
+        }
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || 'Could not get the next task.');
+        }
+
+        const task = await response.json();
+        if (task && task.id) {
+          // We got a specific task ID, navigate to the image annotator.
+          navigate(`/tools/image-annotator/${task.id}`);
+        } else {
+          throw new Error('Received an invalid response from the server.');
+        }
+      } catch (err) {
+        setStartError(err.message);
+      }
+    } else {
+      // For all other task types, use the generic template player.
+      navigate(`/templates/${assignment.template_id}/play`);
+    }
   };
 
   return (
@@ -146,6 +181,12 @@ export default function Tasks() {
                 {error}
               </div>
             ) : null}
+            
+            {startError && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">
+                {startError}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <StatCard label="Assigned Projects" value={assignedProjectsCount} />
@@ -201,7 +242,7 @@ export default function Tasks() {
                         </td>
                         <td className="p-3 text-right">
                           <button
-                            onClick={() => handleStart(p.template_id)} // Pass the templateId dynamically
+                            onClick={() => handleStart(p)}
                             className="rounded-lg px-3 py-1.5 text-blue-700 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                           >
                             Start &gt;

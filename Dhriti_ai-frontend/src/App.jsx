@@ -131,7 +131,7 @@ function App() {
       <Route
         path="/tools/image-annotator/:taskId?"
         element={
-          <ProtectedRoute allowedRoles={['admin']}>
+          <ProtectedRoute allowedRoles={['admin', 'expert']}>
             <ImageAnnotator />
           </ProtectedRoute>
         }

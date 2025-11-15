@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
+import { useNavigate } from "react-router-dom";
 import Sidebar from '../components/Sidebar.jsx';
 import Topbar from '../components/Topbar.jsx';
 
@@ -14,25 +15,6 @@ import Topbar from '../components/Topbar.jsx';
  * Note: If LanguageTool CORS issues appear, run a tiny proxy (I can provide).
  */
 
-// Demo tasks
-const DEMO_TASKS = [
-  {
-    id: "task-1",
-    title: "Grammar demo",
-    text: "He is a engineer at OpenAI in San Fransisco. Please send the report to hr@openai.com by monday 9am.",
-  },
-  {
-    id: "task-2",
-    title: "Feedback sample",
-    text: "I loved the update — it is awesome! But sometimes it crashes. Would you fix this?",
-  },
-  {
-    id: "task-3",
-    title: "Short sample",
-    text: "Is this product useful? I think it's okay but could be better.",
-  },
-];
-
 const DEFAULT_LABELS = ["PERSON", "EMAIL", "ORGANIZATION", "LOCATION", "DATE", "TIME", "POSITIVE", "NEGATIVE"];
 const COLOR_OPTIONS = [
   { id: "yellow", class: "bg-yellow-200", hex: "#FEF08A" },
@@ -46,10 +28,11 @@ const SENTIMENTS = ["Positive", "Negative", "Neutral"];
 const EMOTIONS = ["Happy", "Sad", "Angry", "Surprised", "Calm"];
 
 export default function TextAnnotationPage() {
+  const navigate = useNavigate();
   // tasks + navigation
   const [tasks, setTasks] = useState(() => {
     const s = localStorage.getItem("tat_tasks_v4");
-    return s ? JSON.parse(s) : DEMO_TASKS;
+    return s ? JSON.parse(s) : [];
   });
   const [index, setIndex] = useState(0);
   const task = tasks[index];
@@ -93,6 +76,38 @@ export default function TextAnnotationPage() {
   // UI
   const [view, setView] = useState("annotate"); // annotate | saved
   const [toast, setToast] = useState(null);
+  const [tasksLoading, setTasksLoading] = useState(true);
+  const fileInputRef = useRef(null);
+  const [tasksError, setTasksError] = useState(null);
+
+  useEffect(() => {
+    const fetchTasks = async () => {
+      setTasksLoading(true);
+      setTasksError(null);
+      try {
+        // Replace with your actual API endpoint
+        const response = await fetch("/api/tasks");
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        setTasks(data);
+        localStorage.setItem("tat_tasks_v4", JSON.stringify(data));
+      } catch (error) {
+        console.error("Failed to fetch tasks:", error);
+        setTasksError("Failed to load tasks. Please try again later.");
+      } finally {
+        setTasksLoading(false);
+      }
+    };
+
+    const storedTasks = localStorage.getItem("tat_tasks_v4");
+    if (!storedTasks || JSON.parse(storedTasks).length === 0) {
+      fetchTasks();
+    } else {
+      setTasksLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("tat_annotations_v4", JSON.stringify(annotationsMap));
@@ -113,6 +128,45 @@ export default function TextAnnotationPage() {
   function showToast(msg, ms = 1600) {
     setToast(msg);
     setTimeout(() => setToast(null), ms);
+  }
+
+  async function handleFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      setTasksLoading(true);
+      setTasksError(null);
+      // Send the file to the backend endpoint
+      // Ensure your backend is running and accessible at this URL
+      const response = await fetch("http://localhost:8000/text/upload", {
+        method: "POST",
+        body: formData,
+        // Note: Do not set 'Content-Type' header, browser does it for FormData
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.detail || "File upload failed");
+      }
+
+      const newTasks = await response.json();
+      setTasks(newTasks);
+      setIndex(0);
+      setAnnotationsMap({}); // Clear annotations for new task set
+      setMetaMap({}); // Clear metadata for new task set
+      showToast(`Loaded ${newTasks.length} task(s) from ${file.name}`);
+    } catch (error) {
+      console.error("File upload error:", error);
+      showToast(`Error: ${error.message}`);
+      setTasksError(`Failed to upload file: ${error.message}`);
+    } finally {
+      setTasksLoading(false);
+      event.target.value = null; // Reset file input
+    }
   }
 
   /* -------- Selection helpers (char offset) -------- */
@@ -399,8 +453,11 @@ export default function TextAnnotationPage() {
           </div>
 
           <div className="flex gap-2 items-center">
+            <button onClick={() => navigate(-1)} className="px-3 py-2 rounded text-sm bg-white border text-gray-700 hover:bg-gray-50">Back to Dashboard</button>
             <button onClick={() => setView("annotate")} className={`px-3 py-2 rounded text-sm ${view === "annotate" ? "bg-indigo-600 text-white" : "bg-white border"}`}>Annotate</button>
             <button onClick={() => setView("saved")} className={`px-3 py-2 rounded text-sm ${view === "saved" ? "bg-indigo-600 text-white" : "bg-white border"}`}>View Saved</button>
+            <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".json,.txt,.csv" className="hidden" />
+            <button onClick={() => fileInputRef.current.click()} className="px-3 py-2 rounded text-sm bg-white border">Upload File</button>
           </div>
         </header>
 
@@ -420,6 +477,20 @@ export default function TextAnnotationPage() {
                     <button disabled={index === tasks.length - 1} onClick={() => { if (index < tasks.length - 1) setIndex(index + 1); }} className="px-3 py-1 border rounded text-sm">Next</button>
                   </div>
                 </div>
+
+                {tasksLoading && (
+                  <div className="p-4 text-center text-gray-500">Loading tasks...</div>
+                )}
+
+                {tasksError && (
+                  <div className="p-4 text-center text-red-500 bg-red-50 border border-red-200 rounded">
+                    {tasksError}
+                  </div>
+                )}
+
+                {!tasksLoading && !tasksError && tasks.length === 0 && (
+                  <div className="p-4 text-center text-gray-500">No tasks available.</div>
+                )}
 
                 <div ref={containerRef} onMouseUp={onMouseUpText} className="p-4 bg-gray-50 border rounded min-h-[160px] text-sm leading-relaxed" style={{ whiteSpace: "pre-wrap", lineHeight: 1.8 }}>
                   {renderAnnotatedText()}

@@ -1,6 +1,6 @@
 import json
 import os
-from . import export_routes
+from . import export_routes, image_routes
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from uuid import UUID
@@ -64,6 +64,7 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 # Include the router for exporting task outputs
 router.include_router(export_routes.router)
+router.include_router(image_routes.router)
 
 def require_admin(current_user: TokenData = Depends(get_current_user)) -> TokenData:
     if current_user.role != "admin":
@@ -141,7 +142,8 @@ def get_tasks_dashboard(
             avg_task_time_label=f"{avg_minutes} minutes" if avg_minutes is not None else None,
             rating=round(float(avg_rating), 2) if avg_rating is not None else None,
             completed_tasks=assignment.completed_tasks or 0,
-            pending_tasks=assignment.pending_tasks or 0,
+            pending_tasks=assignment.pending_tasks or 0, # This was missing a comma
+            task_type=project.task_type,
             status=assignment.status or project.status or "Active",
             template_id=template_id,
         )
@@ -244,6 +246,63 @@ def submit_task_annotations(
         new_completed = (assignment.completed_tasks or 0) + 1
         assignment.completed_tasks = new_completed
         assignment.pending_tasks = max(0, assignment.total_task_assign - new_completed)
+    db.commit()
+    db.refresh(annotation)
+    return annotation
+
+@router.post(
+    "/image/{task_id}/annotations",
+    response_model=AnnotationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Submit annotations for an image task",
+)
+def submit_image_task_annotations(
+    task_id: UUID,
+    payload: Dict[str, Any], # Using a generic Dict for flexibility from image tool
+    current_user: TokenData = Depends(get_current_user),
+    db: Session = Depends(database.get_db),
+):
+    """Handles submission from the dedicated image annotation tool."""
+    user = db.query(User).filter(User.email == current_user.email).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    task = db.query(ProjectTask).filter(ProjectTask.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+
+    # Find the latest template for this task's project to satisfy the DB constraint
+    template = (
+        db.query(ProjectTemplate)
+        .filter(ProjectTemplate.project_id == task.project_id)
+        .order_by(ProjectTemplate.created_at.desc())
+        .first()
+    )
+    if not template:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No template found for this project. Cannot submit annotations.")
+
+    # Check if an annotation for this task by this user already exists
+    existing_annotation = (
+        db.query(TaskAnnotation)
+        .filter(TaskAnnotation.task_id == task.task_id, TaskAnnotation.user_id == user.id)
+        .first()
+    )
+    if existing_annotation:
+        existing_annotation.annotations = payload
+        existing_annotation.template_id = template.id  # Ensure template_id is set on update
+        db.commit()
+        db.refresh(existing_annotation)
+        return existing_annotation
+
+    annotation = TaskAnnotation(
+        task_id=task.task_id,
+        user_id=user.id,
+        project_id=task.project_id,
+        template_id=template.id,
+        annotations=payload,
+        status="completed",
+    )
+    db.add(annotation)
     db.commit()
     db.refresh(annotation)
     return annotation
@@ -440,6 +499,90 @@ def get_project_tasks(
     # Pydantic models from SQLAlchemy are not directly mutable, so we convert to dict
     return [{**task.__dict__, "email": allocated_email} for task in tasks]
 
+
+@router.get("/admin/projects/{project_id}/review-tasks", status_code=status.HTTP_200_OK)
+def get_project_review_tasks(
+    project_id: int,
+    _: TokenData = Depends(require_admin),
+    db: Session = Depends(database.get_db),
+):
+    """
+    An endpoint to get all completed tasks for a given project that are ready for review.
+    It joins the task with the annotation and the user who submitted it.
+    """
+    completed_tasks_with_annotator = (
+        db.query(ProjectTask, TaskAnnotation, User)
+        .join(TaskAnnotation, ProjectTask.task_id == TaskAnnotation.task_id)
+        .join(User, TaskAnnotation.user_id == User.id)
+        .filter(ProjectTask.project_id == project_id)
+        .filter(TaskAnnotation.status == "completed")
+        .order_by(TaskAnnotation.submitted_at.desc())
+        .all()
+    )
+
+    results = []
+    for task, annotation, user in completed_tasks_with_annotator:
+        task_dict = task.__dict__
+        # The __dict__ from SQLAlchemy might contain internal state like _sa_instance_state
+        # which we don't want in the response. A cleaner way is to build the dict.
+        results.append({
+            "id": task.id,
+            "task_id": task.task_id,
+            "task_name": task.task_name,
+            "file_name": task.file_name,
+            "annotator_email": user.email,
+            "submitted_at": annotation.submitted_at,
+        })
+
+    return results
+
+@router.post(
+    "/projects/{project_id}/next-task",
+    response_model=ProjectTaskResponse,
+    summary="Get the next available task for a specific project",
+)
+def get_next_project_task(
+    project_id: int,
+    current_user: TokenData = Depends(get_current_user),
+    db: Session = Depends(database.get_db),
+):
+    """
+    Finds and returns the next available task for the current user within a specific project.
+    This is used when a user clicks "Start" on a project from their task list.
+    """
+    user = db.query(User).filter(User.email == current_user.email).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    # Find tasks that the user has already completed for this specific project
+    completed_task_ids_query = db.query(TaskAnnotation.task_id).filter(
+        TaskAnnotation.user_id == user.id,
+        TaskAnnotation.project_id == project_id,
+    )
+
+    # Find an available task in the specified project.
+    # An available task is 'NEW' and not yet completed by this user.
+    # The project itself must also be 'Active'.
+    available_task = (
+        db.query(ProjectTask)
+        .join(Project, Project.id == ProjectTask.project_id)
+        .filter(
+            ProjectTask.project_id == project_id,
+            ProjectTask.status == "NEW",
+            Project.status == "Active",
+            ~ProjectTask.task_id.in_(completed_task_ids_query)
+        )
+        .order_by(ProjectTask.created_at)  # FIFO assignment
+        .first()
+    )
+
+    if not available_task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No available tasks for this project right now.",
+        )
+
+    return available_task
 
 @router.get("/admin/users", response_model=List[UserSummary])
 def list_users(
