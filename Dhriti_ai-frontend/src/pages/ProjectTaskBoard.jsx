@@ -32,7 +32,6 @@ export default function ProjectTaskBoard() {
   const preservedState = location.state
   const projectFromState = preservedState?.project
   const projectName = projectFromState?.name || formatProjectName(projectId)
-  const taskType = projectFromState?.task_type
   const projectStatus = projectFromState?.status || 'Active'
 
   useEffect(() => {
@@ -200,7 +199,7 @@ export default function ProjectTaskBoard() {
                             <td className="p-3">{task.file_name || 'N/A'}</td>
                             <td className="p-3">{task.email || <span className="text-slate-400">Not Allocated</span>}</td>
                             <td className="p-3">
-                              {taskType === 'Image Annotation' && (
+                              {projectFromState?.data_category === 'image' ? (
                                 <button
                                   type="button"
                                   onClick={() => navigate(`/tools/image-annotator/${task.id}`)}
@@ -208,7 +207,17 @@ export default function ProjectTaskBoard() {
                                 >
                                   Start
                                 </button>
-                              )}
+                              ) : projectFromState?.data_category === 'text' ? (
+                                <button
+                                  type="button"
+                                  onClick={() => navigate(`/tools/text-annotator/${task.id}`)}
+                                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600"
+                                >
+                                  Start
+                                </button>
+                              ) : (
+                                <span className="text-slate-400 text-xs">-</span>
+                              ) }
                             </td>
                             <td className="p-3">
                               <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">

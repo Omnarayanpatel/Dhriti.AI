@@ -202,8 +202,8 @@ function ImageAnnotatorComponent() {
           });
           if (!response.ok) throw new Error('Could not fetch projects.');
           const data = await response.json();
-          const imageAnnotationProjects = data.filter(p => p.task_type === 'Image Annotation');
-          setProjects(imageAnnotationProjects);
+          const imageProjects = data.filter(p => p.data_category === 'image');
+          setProjects(imageProjects);
         } catch (err) {
           setError(err.message);
         }

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import Sidebar from '../components/Sidebar.jsx'
 import Topbar from '../components/Topbar.jsx'
 import { getToken } from '../utils/auth.js'
+import { Listbox, ListboxButton, ListboxOption, ListboxOptions } from '@headlessui/react'
 
 const API_BASE = 'http://localhost:8000'
 
@@ -24,6 +25,25 @@ const initialForm = {
   screenMode: 'full',
   guidelines: '',
 }
+
+const imageProjectTypes = [
+  { value: 'Object Detection', description: 'Object Detection-Detect objects with bounding boxes' },
+  { value: 'Instance Segmentation', description: 'Instance Segmentation-Outline objects with polygons/masks' },
+  { value: 'Semantic Segmentation', description: 'Semantic Segmentation-Classify every pixel in the image' },
+  { value: 'Keypoint Detection', description: 'Keypoint Detection-Mark specific points or skeleton structures' },
+  { value: '3D Cuboid Annotation', description: '3D Cuboid Annotation-Create 3D bounding boxes for spatial understanding' },
+  { value: 'Image Classification', description: 'Image Classification-Assign labels to full images' },
+];
+
+const textProjectTypes = [
+  { value: 'NER-Name Entity Recognition', description: '(Name Entity Recognition) Highlight text spans and assign labels like PERSON, LOCATION, EMAIL, DATE.' },
+  { value: 'Text Classification', description: 'Assign one or more labels to the entire text.' },
+  { value: 'Sentiment Analysis', description: 'Label the sentiment of the text (Positive, Negative, Neutral).' },
+  { value: 'Emotion Classification', description: 'Label emotional tone (Happy, Sad, Angry, Fear, Surprise).' },
+  { value: 'Span Annotation', description: 'General text span labeling (custom segments, custom labels).' },
+  { value: 'Relationship Annotation', description: 'Define relation between two annotated entities.' },
+  { value: 'Grammar Correction', description: 'Mark errors and add corrected versions of sentences.' },
+];
 
 function AddProject() {
   const [form, setForm] = useState(initialForm)
@@ -57,15 +77,19 @@ function AddProject() {
     setForm(prev => {
       const newState = {
         ...prev,
-        [field]: type === 'checkbox' ? checked : value,
+        [field]: type === 'checkbox' ? checked : value
       };
       // If projectType is being changed and it's not 'annotation', reset taskType.
-      if (field === 'projectType' && value !== 'annotation') {
+      if (field === 'projectType' && value !== 'annotation' && prev.dataCategory !== 'image') {
         newState.taskType = '';
       }
       return newState;
     });
   };
+
+  useEffect(() => {
+    setForm(prev => ({ ...prev, projectType: '', taskType: '' }));
+  }, [form.dataCategory]);
 
   // Reset client_id if association changes from 'Client'
   useEffect(() => {
@@ -220,18 +244,54 @@ function AddProject() {
                     <option value="video">Video</option>
                   </select>
                 </div>
-                <div className="md:col-span-1">
+                <div className="md:col-span-1 relative">
                   <label className="block text-sm font-medium text-slate-600">Project Type</label>
-                  <select
-                    value={form.projectType}
-                    onChange={handleChange('projectType')}
-                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-slate-400 focus:outline-none"
-                  >
-                    <option value="">Select project type</option>
-                    <option value="annotation">Annotation</option>
-                    <option value="review">Review</option>
-                  
-                  </select>
+                  <Listbox value={form.projectType} onChange={(value) => setForm(prev => ({ ...prev, projectType: value }))}>
+                    <ListboxButton className="relative mt-1 w-full cursor-default rounded-lg border border-slate-200 bg-white py-2 pl-3 pr-10 text-left focus:outline-none focus-visible:border-indigo-500 focus-visible:ring-2 focus-visible:ring-white/75 focus-visible:ring-offset-2 focus-visible:ring-offset-orange-300 sm:text-sm">
+                      <span className="block truncate">{form.projectType || 'Select project type'}</span>
+                      <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                      </span>
+                    </ListboxButton>
+                    <ListboxOptions
+                      anchor="bottom"
+                      // transition
+                      className="w-[var(--button-width)] rounded-xl border border-slate-200 bg-white p-1 [--anchor-gap:var(--spacing-1)] focus:outline-none z-20"
+                    >
+                      {form.dataCategory === 'image' ? (
+                        imageProjectTypes.map(type => (
+                          <ListboxOption
+                            key={type.value}
+                            value={type.value}
+                            className="group flex cursor-default items-center gap-2 rounded-lg py-1.5 px-3 select-none data-[focus]:bg-slate-100 min-h-[36px]"
+                          >
+                            <div className="text-sm text-slate-900 group-data-[focus]:hidden">{type.value}</div>
+                            <div className="hidden text-sm text-slate-600 group-data-[focus]:block">{type.description}</div>
+                          </ListboxOption>
+                        ))
+                      ) : form.dataCategory === 'text' ? (
+                        textProjectTypes.map(type => (
+                          <ListboxOption
+                            key={type.value}
+                            value={type.value}
+                            className="group flex cursor-default items-center gap-2 rounded-lg py-1.5 px-3 select-none data-[focus]:bg-slate-100 min-h-[36px]"
+                          >
+                            <div className="text-sm text-slate-900 group-data-[focus]:hidden">{type.value}</div>
+                            <div className="hidden text-sm text-slate-600 group-data-[focus]:block">{type.description}</div>
+                          </ListboxOption>
+                        ))
+                      ) : (
+                        <>
+                          <ListboxOption value="annotation" className="group flex cursor-default items-center gap-2 rounded-lg py-1.5 px-3 select-none data-[focus]:bg-slate-100 min-h-[36px]">
+                            <div className="text-sm text-slate-900">Annotation</div>
+                          </ListboxOption>
+                          <ListboxOption value="review" className="group flex cursor-default items-center gap-2 rounded-lg py-1.5 px-3 select-none data-[focus]:bg-slate-100 min-h-[36px]">
+                            <div className="text-sm text-slate-900">Review</div>
+                          </ListboxOption>
+                        </>
+                      )}
+                    </ListboxOptions>
+                  </Listbox>
                 </div>
                 <div className="md:col-span-1">
                   <label className="block text-sm font-medium text-slate-600">Association</label>
