@@ -8,24 +8,47 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app import database
-from app.models.project import Project
+from app.models.project import Project, ProjectAssignment, TaskReview
 from app.models.project_task import ProjectTask
 from app.models.task_annotation import TaskAnnotation
 from app.models.project_template import ProjectTemplate
+from app.models.user import User
 from app.routes.protected import get_current_user
 from app.schemas.token import TokenData
 from app.schemas.tasks import AnnotationResponse
 
-class ProjectResponse(BaseModel):
-    id: UUID
+class ProjectSummary(BaseModel):
+    id: int
     name: str
-    description: Optional[str]
+    class Config:
+        from_attributes = True
+
+class ProjectListResponse(BaseModel):
+    projects: List[ProjectSummary]
+
+class SchemaResponse(BaseModel):
+    columns: List[str]
+
+class TemplateConfigRequest(BaseModel):
+    title: Optional[str] = None
+    text: str
 
 class UploadedTask(BaseModel):
     id: str
     title: str
     text: str
 
+class ProjectTaskResponse(BaseModel):
+    id: UUID
+    project_id: int
+    task_id: str
+    task_name: str
+    file_name: str
+    status: str
+    payload: dict
+
+    class Config:
+        from_attributes = True
 
 class TextTaskResponse(BaseModel):
     task: dict
@@ -36,14 +59,132 @@ class TextTaskResponse(BaseModel):
 router = APIRouter(prefix="/text", tags=["text_annotation"])
 
 
-@router.get("/projects", response_model=List[ProjectResponse])
-def get_projects(db: Session = Depends(database.get_db)):
-    """
-    Fetches a list of all projects.
-    """
-    projects = db.query(Project).order_by(Project.name).all()
-    return projects
+@router.get("/projects", response_model=ProjectListResponse)
+def get_projects(category: Optional[str] = None, db: Session = Depends(database.get_db)):
 
+    """
+   
+Fetches a list of projects. Can be filtered by data category.
+    e.g., /text/projects?category=text
+    """
+    
+    query = db.query(Project)
+    if category:
+        query = query.filter(Project.data_category == category)
+    projects = query.order_by(Project.name).all()
+    return {"projects": projects}
+
+@router.get("/project/{project_id}/schema", response_model=SchemaResponse)
+def get_project_schema(project_id: int, db: Session = Depends(database.get_db)):
+    """
+    Infers the schema (column names) for a project by inspecting the
+    data of the first available task.
+    """
+    first_task = db.query(ProjectTask).filter(ProjectTask.project_id == project_id).first()
+
+    if not first_task:
+        # If there are no tasks, we can't infer columns. Return empty.
+        return {"columns": []}
+
+    payload = first_task.payload
+    # The payload might be a string-encoded JSON, so we ensure it's a dict.
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            return {"columns": []} # Not valid JSON, can't get keys.
+
+    if isinstance(payload, dict):
+        return {"columns": list(payload.keys())}
+
+    return {"columns": []}
+
+@router.post("/project/{project_id}/template")
+def create_or_update_template(
+    project_id: int,
+    template_config: TemplateConfigRequest,
+    db: Session = Depends(database.get_db)
+):
+    """
+    Creates a new project template configuration for mapping data columns.
+    """
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    # Define a simple UI layout with a title and a text area.
+    layout = [
+        {"id": "title_display", "type": "Text", "props": {"text": "Title", "variant": "h5"}},
+        {"id": "text_content", "type": "Text", "props": {"text": "Content", "variant": "body1"}}
+    ]
+
+    # Define the rules that map the data source to the layout components.
+    rules = [
+        {
+            "component_key": "text_content",
+            "target_prop": "text",
+            "source_kind": "TASK_PAYLOAD",
+            "source_path": template_config.text
+        }
+    ]
+    if template_config.title:
+        rules.append({
+            "component_key": "title_display",
+            "target_prop": "text",
+            "source_kind": "TASK_PAYLOAD",
+            "source_path": template_config.title
+        })
+
+    new_template = ProjectTemplate(
+        project_id=project_id,
+        name=f"Mapping for {project.name}",  # Provide a default name
+        layout=layout,
+        rules=rules
+    )
+
+    db.add(new_template)
+    db.commit()
+    return {"message": "Template created successfully", "project_id": project_id}
+
+@router.post(
+    "/projects/{project_id}/next-task",
+    response_model=ProjectTaskResponse,
+    summary="Get the next available text task for a specific project",
+)
+def get_next_text_project_task(
+    project_id: int,
+    current_user: TokenData = Depends(get_current_user),
+    db: Session = Depends(database.get_db),
+):
+    """
+    Finds and returns the next available text task for the current user within a specific project.
+    """
+    user = db.query(User).filter(User.email == current_user.email).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    completed_task_ids_query = db.query(TaskAnnotation.task_id).filter(
+        TaskAnnotation.user_id == user.id,
+        TaskAnnotation.project_id == project_id,
+    )
+
+    available_task = (
+        db.query(ProjectTask)
+        .join(Project, Project.id == ProjectTask.project_id)
+        .filter(
+            ProjectTask.project_id == project_id,
+            ProjectTask.status == "NEW",
+            Project.status == "Active",
+            ~ProjectTask.task_id.in_(completed_task_ids_query)
+        )
+        .order_by(ProjectTask.created_at)
+        .first()
+    )
+
+    if not available_task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No available tasks for this project right now.")
+
+    return available_task
 
 @router.get("/project/{project_id}/tasks", response_model=List[UploadedTask])
 def get_tasks_for_project(project_id: UUID, db: Session = Depends(database.get_db)):
@@ -136,7 +277,7 @@ def get_text_task(
     current_user: TokenData = Depends(get_current_user),
     db: Session = Depends(database.get_db),
 ):
-    """
+    """ 
     Fetches a single text task by its UUID, along with its project template
     and any existing annotations for the current user.
     """
@@ -153,10 +294,14 @@ def get_text_task(
     )
 
     # Find existing annotations for this task by the current user
-    annotations = db.query(TaskAnnotation).filter(TaskAnnotation.task_id == task.id, TaskAnnotation.user_id == current_user.user_id).all()
+    annotations = (
+        db.query(TaskAnnotation)
+        .filter(TaskAnnotation.task_id == task.task_id, TaskAnnotation.user_id == current_user.user_id)
+        .all()
+    )
 
     return {
         "task": task.to_dict(),
         "template": template.to_dict() if template else None,
-        "annotations": annotations,
+        "annotations": [AnnotationResponse.from_orm(ann).model_dump() for ann in annotations],
     }

@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import Sidebar from '../components/Sidebar.jsx';
 import Topbar from '../components/Topbar.jsx';
+import { getToken } from "../utils/auth.js";
 
 /**
  * Text Annotation App.jsx
@@ -12,7 +13,7 @@ import Topbar from '../components/Topbar.jsx';
  * - Save to localStorage + View Saved (structured)
  * - Clean grey-white Tailwind UI
  *
- * Note: If LanguageTool CORS issues appear, run a tiny proxy (I can provide).
+ * Uses localStorage for persistence.
  */
 
 const DEFAULT_LABELS = ["PERSON", "EMAIL", "ORGANIZATION", "LOCATION", "DATE", "TIME", "POSITIVE", "NEGATIVE"];
@@ -27,8 +28,11 @@ const COLOR_OPTIONS = [
 const SENTIMENTS = ["Positive", "Negative", "Neutral"];
 const EMOTIONS = ["Happy", "Sad", "Angry", "Surprised", "Calm"];
 
+const API_BASE = 'http://localhost:8000';
+
 export default function TextAnnotationPage() {
   const navigate = useNavigate();
+  const { id: taskId } = useParams(); // Correctly get the 'id' param and rename it to taskId
   // tasks + navigation
   const [tasks, setTasks] = useState(() => {
     const s = localStorage.getItem("tat_tasks_v4");
@@ -80,34 +84,109 @@ export default function TextAnnotationPage() {
   const fileInputRef = useRef(null);
   const [tasksError, setTasksError] = useState(null);
 
+  // Mapping Modal State
+  const [showMappingModal, setShowMappingModal] = useState(false);
+  const [mappingProjects, setMappingProjects] = useState([]);
+  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [projectColumns, setProjectColumns] = useState([]);
+  const [mapping, setMapping] = useState({ title: '', text: '' });
+  const [mappingLoading, setMappingLoading] = useState(false);
+  const [mappingError, setMappingError] = useState('');
+
   useEffect(() => {
-    const fetchTasks = async () => {
+    const fetchSingleTask = async (id) => {
       setTasksLoading(true);
       setTasksError(null);
       try {
-        // Replace with your actual API endpoint
-        const response = await fetch("/api/tasks");
+        const token = getToken();
+        if (!token) {
+          throw new Error("You must be logged in to view tasks.");
+        }
+        const response = await fetch(`${API_BASE}/text/${id}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || `HTTP error! status: ${response.status}`);
         }
         const data = await response.json();
-        setTasks(data);
-        localStorage.setItem("tat_tasks_v4", JSON.stringify(data));
+        if (data.task) {
+          let taskData = data.task.payload || {};
+          let taskTitle = data.task.payload?.title || data.task.payload?.name || 'Untitled Task';
+          let taskText = '';
+
+          // If a template exists, use its rules to find the title and text
+          if (data.template && data.template.rules) {
+            const textRule = data.template.rules.find(r => r.component_key === 'text_content');
+            const titleRule = data.template.rules.find(r => r.component_key === 'title_display');
+
+            if (textRule && taskData[textRule.source_path]) {
+              taskText = taskData[textRule.source_path];
+            }
+            if (titleRule && taskData[titleRule.source_path]) {
+              taskTitle = taskData[titleRule.source_path];
+            }
+          } else {
+            // Fallback if no template exists: try common keys
+            taskText = taskData.text || taskData.content || '';
+          }
+
+          // The component expects `title` and `text` at the top level of the task object
+          const processedTask = { ...data.task, title: taskTitle, text: taskText };
+          setTasks([processedTask]);
+          setIndex(0);
+          if (data.annotations) {
+            setAnnotationsMap(prev => ({ ...prev, [data.task.id]: data.annotations }));
+          }
+        } else {
+          throw new Error("Task data not found in response.");
+        }
       } catch (error) {
-        console.error("Failed to fetch tasks:", error);
-        setTasksError("Failed to load tasks. Please try again later.");
+        console.error("Failed to fetch single task:", error);
+        setTasksError(`Failed to load task: ${error.message}`);
       } finally {
         setTasksLoading(false);
       }
     };
 
-    const storedTasks = localStorage.getItem("tat_tasks_v4");
-    if (!storedTasks || JSON.parse(storedTasks).length === 0) {
-      fetchTasks();
+    const fetchTaskList = async () => {
+      setTasksLoading(true);
+      setTasksError(null);
+      try {
+        const response = await fetch("/api/tasks"); // Placeholder for multiple tasks
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const data = await response.json();
+        setTasks(data);
+        localStorage.setItem("tat_tasks_v4", JSON.stringify(data));
+      } catch (error) {
+        console.error("Failed to fetch task list:", error);
+        setTasksError("Failed to load task list. Please try again later.");
+      } finally {
+        setTasksLoading(false);
+      }
+    };
+
+    if (taskId) {
+      fetchSingleTask(taskId);
     } else {
-      setTasksLoading(false);
+      const storedTasks = localStorage.getItem("tat_tasks_v4");
+      if (!storedTasks || JSON.parse(storedTasks).length === 0) {
+        fetchTaskList();
+      } else {
+        setTasksLoading(false);
+      }
     }
-  }, []);
+  }, [taskId]);
+
+  useEffect(() => {
+    // This effect is now separate to avoid re-running fetches on every annotation change.
+    if (tasks.length > 0 && !taskId) { // Only persist to localStorage in multi-task mode
+      localStorage.setItem("tat_tasks_v4", JSON.stringify(tasks));
+    }
+  }, [tasks, taskId]);
 
   useEffect(() => {
     localStorage.setItem("tat_annotations_v4", JSON.stringify(annotationsMap));
@@ -118,9 +197,6 @@ export default function TextAnnotationPage() {
   useEffect(() => {
     localStorage.setItem("tat_meta_v4", JSON.stringify(metaMap));
   }, [metaMap]);
-  useEffect(() => {
-    localStorage.setItem("tat_tasks_v4", JSON.stringify(tasks));
-  }, [tasks]);
   useEffect(() => {
     localStorage.setItem("tat_saved_v4", JSON.stringify(savedList));
   }, [savedList]);
@@ -345,7 +421,10 @@ export default function TextAnnotationPage() {
   function setTasksAndPersist(setter) {
     setTasks((prev) => {
       const next = typeof setter === "function" ? setter(prev) : setter;
-      localStorage.setItem("tat_tasks_v4", JSON.stringify(next));
+      // This now only persists if not in single-task mode
+      if (!taskId) {
+        localStorage.setItem("tat_tasks_v4", JSON.stringify(next));
+      }
       return next;
     });
   }
@@ -437,10 +516,100 @@ export default function TextAnnotationPage() {
   }
 
   // convenience getters
-  const annotations = annotationsMap[task.id] || [];
-  const currentMeta = metaMap[task.id] || { sentiment: "", emotion: "" };
+  const annotations = (task && annotationsMap[task.id]) || [];
+  const currentMeta = (task && metaMap[task.id]) || { sentiment: "", emotion: "" };
 
+  /* ---------- Mapping Modal Logic ---------- */
+  useEffect(() => {
+    if (showMappingModal) {
+      const fetchProjects = async () => {
+        setMappingLoading(true);
+        setMappingError('');
+        try {
+          // Fetch projects with data category 'text'
+          const response = await fetch(`${API_BASE}/text/projects?category=text`);
+          if (!response.ok) {
+            throw new Error('Failed to fetch projects.');
+          }
+          const data = await response.json();
+          setMappingProjects(data.projects || []);
+        } catch (error) {
+          setMappingError(error.message);
+        } finally {
+          setMappingLoading(false);
+        }
+      };
+      fetchProjects();
+    }
+  }, [showMappingModal]);
+
+  useEffect(() => {
+    if (selectedProjectId) {
+      const fetchColumns = async () => {
+        setMappingLoading(true);
+        setMappingError('');
+        setProjectColumns([]);
+        try {
+          // Fetch the schema (columns) for the selected project
+          const response = await fetch(`${API_BASE}/text/project/${selectedProjectId}/schema`);
+          if (!response.ok) {
+            throw new Error('Failed to fetch project columns.');
+          }
+          const data = await response.json();
+          setProjectColumns(data.columns || []);
+        } catch (error) {
+          setMappingError(error.message);
+        } finally {
+          setMappingLoading(false);
+        }
+      };
+      fetchColumns();
+    }
+  }, [selectedProjectId]);
+
+  const handleApplyMapping = async () => {
+    if (!selectedProjectId || !mapping.text) {
+      setMappingError("Please select a project and map the 'text' field.");
+      return;
+    }
+    setMappingLoading(true);
+    setMappingError('');
+    try {
+      const response = await fetch(`${API_BASE}/text/project/${selectedProjectId}/template`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(mapping),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || 'Failed to save mapping template.');
+      }
+
+      showToast("Mapping applied successfully!");
+      setShowMappingModal(false); // Close modal on success
+    } catch (error) {
+      console.error("Failed to apply mapping:", error);
+      setMappingError(error.message);
+    } finally {
+      setMappingLoading(false);
+    }
+  };
   /* ---------- JSX ---------- */
+
+  // Early return for loading or error states to prevent rendering with undefined task
+  if (tasksLoading) {
+    return <div className="min-h-screen bg-gray-100 flex items-center justify-center">Loading task...</div>;
+  }
+  if (tasksError) {
+    return <div className="min-h-screen bg-gray-100 flex items-center justify-center text-red-500">{tasksError}</div>;
+  }
+  if (!task) {
+    return <div className="min-h-screen bg-gray-100 flex items-center justify-center">No task available.</div>;
+  }
+
   return (
     
     <div className="min-h-screen bg-gray-100 py-8 px-4">
@@ -456,8 +625,13 @@ export default function TextAnnotationPage() {
             <button onClick={() => navigate(-1)} className="px-3 py-2 rounded text-sm bg-white border text-gray-700 hover:bg-gray-50">Back to Dashboard</button>
             <button onClick={() => setView("annotate")} className={`px-3 py-2 rounded text-sm ${view === "annotate" ? "bg-indigo-600 text-white" : "bg-white border"}`}>Annotate</button>
             <button onClick={() => setView("saved")} className={`px-3 py-2 rounded text-sm ${view === "saved" ? "bg-indigo-600 text-white" : "bg-white border"}`}>View Saved</button>
-            <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".json,.txt,.csv" className="hidden" />
-            <button onClick={() => fileInputRef.current.click()} className="px-3 py-2 rounded text-sm bg-white border">Upload File</button>
+            {!taskId && (
+              <><input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".json,.txt,.csv" className="hidden" /><button onClick={() => fileInputRef.current.click()} className="px-3 py-2 rounded text-sm bg-white border">Upload File</button></>
+            )}
+            <button 
+              onClick={() => setShowMappingModal(true)}
+              className="px-3 py-2 rounded text-sm bg-white border"
+            >Map Data</button>
           </div>
         </header>
 
@@ -468,29 +642,17 @@ export default function TextAnnotationPage() {
               <div className="bg-white rounded-xl shadow p-5 mb-4">
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <div className="text-sm text-gray-500">{task?.title}</div>
-                    <div className="text-xs text-gray-400">Task {index + 1} / {tasks.length}</div>
+                    <div className="text-sm text-gray-500">{task?.title || task?.name || 'Untitled Task'}</div>
+                    <div className="text-xs text-gray-400">
+                      {taskId ? `Task ID: ${taskId}` : `Task ${index + 1} / ${tasks.length}`}
+                    </div>
                   </div>
 
                   <div className="flex gap-2">
-                    <button disabled={index === 0} onClick={() => { if (index > 0) setIndex(index - 1); }} className="px-3 py-1 border rounded text-sm">Prev</button>
-                    <button disabled={index === tasks.length - 1} onClick={() => { if (index < tasks.length - 1) setIndex(index + 1); }} className="px-3 py-1 border rounded text-sm">Next</button>
+                    <button disabled={index === 0 || !!taskId} onClick={() => { if (index > 0) setIndex(index - 1); }} className="px-3 py-1 border rounded text-sm disabled:opacity-50">Prev</button>
+                    <button disabled={index === tasks.length - 1 || !!taskId} onClick={() => { if (index < tasks.length - 1) setIndex(index + 1); }} className="px-3 py-1 border rounded text-sm disabled:opacity-50">Next</button>
                   </div>
                 </div>
-
-                {tasksLoading && (
-                  <div className="p-4 text-center text-gray-500">Loading tasks...</div>
-                )}
-
-                {tasksError && (
-                  <div className="p-4 text-center text-red-500 bg-red-50 border border-red-200 rounded">
-                    {tasksError}
-                  </div>
-                )}
-
-                {!tasksLoading && !tasksError && tasks.length === 0 && (
-                  <div className="p-4 text-center text-gray-500">No tasks available.</div>
-                )}
 
                 <div ref={containerRef} onMouseUp={onMouseUpText} className="p-4 bg-gray-50 border rounded min-h-[160px] text-sm leading-relaxed" style={{ whiteSpace: "pre-wrap", lineHeight: 1.8 }}>
                   {renderAnnotatedText()}
@@ -743,6 +905,76 @@ export default function TextAnnotationPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Mapping Modal */}
+        {showMappingModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">Create Mapping Template</h3>
+                <button onClick={() => setShowMappingModal(false)} className="text-gray-500 hover:text-gray-800">&times;</button>
+              </div>
+
+              {mappingError && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{mappingError}</div>}
+
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="project-select" className="block text-sm font-medium text-gray-700 mb-1">Select Project</label>
+                  <select
+                    id="project-select"
+                    value={selectedProjectId}
+                    onChange={(e) => setSelectedProjectId(e.target.value)}
+                    className="w-full border rounded px-3 py-2 text-sm"
+                    disabled={mappingLoading}
+                  >
+                    <option value="">-- Choose a project --</option>
+                    {mappingProjects.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedProjectId && (
+                  <>
+                    <div>
+                      <label htmlFor="title-map" className="block text-sm font-medium text-gray-700 mb-1">Map to Title</label>
+                      <select
+                        id="title-map"
+                        value={mapping.title}
+                        onChange={(e) => setMapping(prev => ({ ...prev, title: e.target.value }))}
+                        className="w-full border rounded px-3 py-2 text-sm"
+                        disabled={mappingLoading || projectColumns.length === 0}
+                      >
+                        <option value="">-- Select title column (optional) --</option>
+                        {projectColumns.map(col => <option key={col} value={col}>{col}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="text-map" className="block text-sm font-medium text-gray-700 mb-1">Map to Text (for annotation)</label>
+                      <select
+                        id="text-map"
+                        value={mapping.text}
+                        onChange={(e) => setMapping(prev => ({ ...prev, text: e.target.value }))}
+                        className="w-full border rounded px-3 py-2 text-sm"
+                        disabled={mappingLoading || projectColumns.length === 0}
+                      >
+                        <option value="">-- Select text column --</option>
+                        {projectColumns.map(col => <option key={col} value={col}>{col}</option>)}
+                      </select>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="mt-6 flex justify-end gap-3">
+                <button onClick={() => setShowMappingModal(false)} className="px-4 py-2 border rounded text-sm">Cancel</button>
+                <button onClick={handleApplyMapping} disabled={mappingLoading || !selectedProjectId || !mapping.text} className="px-4 py-2 bg-indigo-600 text-white rounded text-sm disabled:bg-indigo-300">
+                  {mappingLoading ? 'Applying...' : 'Apply Mapping'}
+                </button>
+              </div>
             </div>
           </div>
         )}

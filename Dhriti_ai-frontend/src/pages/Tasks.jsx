@@ -157,6 +157,33 @@ export default function Tasks() {
       } catch (err) {
         setStartError(err.message);
       }
+    } else if (assignment.task_type === 'Text Annotation' || assignment.data_category === 'text') {
+      const token = getToken();
+      try {
+        const response = await fetch(`${API_BASE}/text/projects/${assignment.project_id}/next-task`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (response.status === 404) {
+          setStartError('No available tasks for this project right now. Please try again later.');
+          return;
+        }
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || 'Could not get the next task.');
+        }
+
+        const task = await response.json();
+        if (task && task.id) {
+          // We got a specific task ID, navigate to the text annotator.
+          navigate(`/tools/text-annotator/${task.id}`);
+        } else {
+          throw new Error('Received an invalid response from the server.');
+        }
+      } catch (err) {
+        setStartError(err.message);
+      }
     } else {
       // For all other task types, use the generic template player.
       navigate(`/templates/${assignment.template_id}/play`);

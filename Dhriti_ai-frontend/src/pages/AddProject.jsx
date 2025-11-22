@@ -320,7 +320,7 @@ function AddProject() {
                     ))}
                   </select>
                 </div>
-                <div className="md:col-span-1">
+                {/* <div className="md:col-span-1">
                   <label className="block text-sm font-medium text-slate-600">Task Type</label>
                   {form.projectType === 'annotation' ? (
                     <select
@@ -342,7 +342,7 @@ function AddProject() {
                       className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-slate-400 focus:outline-none"
                     />
                   )}
-                </div>
+                </div> */}
                 <div className="md:col-span-1">
                   <label className="block text-sm font-medium text-slate-600">Task Time (in mins)</label>
                   <input

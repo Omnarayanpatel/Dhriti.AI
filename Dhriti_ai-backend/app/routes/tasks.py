@@ -144,6 +144,7 @@ def get_tasks_dashboard(
             completed_tasks=assignment.completed_tasks or 0,
             pending_tasks=assignment.pending_tasks or 0, # This was missing a comma
             task_type=project.task_type,
+            data_category=project.data_category,
             status=assignment.status or project.status or "Active",
             template_id=template_id,
         )

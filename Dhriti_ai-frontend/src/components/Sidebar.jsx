@@ -95,6 +95,7 @@ function Sidebar() {
                 {navItem({ to: '/tools/client-uploads', label: 'Client Uploads' })}
                 {navItem({ to: '/tools/image-annotator', label: 'Image Annotator' })}
                 {navItem({ to: '/tools/text-annotator', label: 'Text Annotator' })}
+                {navItem({ to: '/tools/video-annotator', label: 'Video Annotator' })}
                 {navItem({ to: '/tools/download-outputs', label: 'Download Outputs' })}
               </div>
             </details>

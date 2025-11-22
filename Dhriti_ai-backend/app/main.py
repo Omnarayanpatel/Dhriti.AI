@@ -6,7 +6,7 @@ import app.models.audit  # noqa: F401
 import app.models.task_import  # noqa: F401
 import app.models.project_template # noqa: F401
 from app.database import Base, engine, run_startup_migrations
-from app.routes import auth, batches, dashboard, protected, task_ingest, tasks, template_builder, users, client, image_tasks,text_routes
+from app.routes import auth, batches, dashboard, protected, task_ingest, tasks, template_builder, users, client, image_tasks,image_routes,text_routes
 from app.routes import admin # Add this import
 
 
@@ -41,4 +41,5 @@ app.include_router(users.router)
 app.include_router(client.router) 
 app.include_router(admin.router)
 app.include_router(image_tasks.router)
+app.include_router(image_routes.router)
 app.include_router(text_routes.router)
