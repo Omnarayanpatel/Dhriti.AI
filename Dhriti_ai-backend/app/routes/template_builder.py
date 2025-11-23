@@ -302,10 +302,19 @@ def create_template(
         if creator:
             creator_id = creator.id
 
+    # Combine annotation settings into a single object
+    annotation_settings = {
+        "labels": payload.labels or [],
+        "colors": payload.colors or [],
+        "sentiments": payload.sentiments or [],
+        "emotions": payload.emotions or [],
+    }
+
     template = ProjectTemplate(
         project_id=payload.project_id,
         name=payload.name.strip(),
-        layout=payload.layout,
+        # Store annotation settings within the layout object
+        layout=[*payload.layout, {"id": "meta_settings", "type": "meta", "props": {"annotation_settings": annotation_settings}}],
         rules=payload.rules,
         created_by=creator_id,
     )
@@ -319,6 +328,10 @@ def create_template(
         name=template.name,
         layout=template.layout,
         rules=template.rules,
+        labels=annotation_settings.get("labels"),
+        colors=annotation_settings.get("colors"),
+        sentiments=annotation_settings.get("sentiments"),
+        emotions=annotation_settings.get("emotions"),
         created_at=template.created_at,
         updated_at=template.updated_at,
         created_by=template.created_by,

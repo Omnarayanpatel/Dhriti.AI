@@ -145,7 +145,7 @@ function Projects() {
             </div>
             <div className="flex gap-2">
               <button onClick={() => navigate('/tools/json-to-excel')} className="px-3 py-2 rounded-lg border hover:bg-slate-50">Upload Data</button>
-              <button onClick={() => navigate('/projects/new')} className="px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700">Add Project</button>
+              <button onClick={() => navigate('/projects/new')} className="px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700">+ New Project</button>
             </div>
           </div>
 

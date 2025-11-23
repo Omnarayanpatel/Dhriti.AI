@@ -30,3 +30,14 @@ class ProjectTemplate(Base):
     project = relationship("Project", back_populates="templates")
     creator = relationship("User", lazy="joined", foreign_keys=[created_by])
 
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "project_id": self.project_id,
+            "name": self.name,
+            "layout": self.layout,
+            "rules": self.rules,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_by": self.created_by,
+        }

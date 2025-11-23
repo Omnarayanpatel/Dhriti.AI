@@ -41,7 +41,7 @@ function Sidebar() {
       <div className="md:hidden sticky top-0 z-30 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-brand-600 text-white grid place-items-center font-bold">D</div>
-          <span className="font-semibold">Dhriti.AI</span>
+          <span className="font-semibold">Dhritii.AI</span>
         </div>
         <button onClick={() => setOpen((v) => !v)} className="p-2 rounded-lg hover:bg-slate-100">☰</button>
       </div>
@@ -50,7 +50,7 @@ function Sidebar() {
       <div className="hidden md:flex sticky top-0 z-20 items-center justify-between bg-white border-b border-slate-200 px-4 py-3">
         <div className="flex items-center gap-2">
           <div className="w-9 h-9 rounded-lg bg-brand-600 text-white grid place-items-center font-bold">D</div>
-          <span className="font-semibold">Dhriti.AI</span>
+          <span className="font-semibold">Dhritii.AI</span>
         </div>
         <button
           onClick={() => setOpen((v) => !v)}
@@ -95,6 +95,7 @@ function Sidebar() {
                 {navItem({ to: '/tools/client-uploads', label: 'Client Uploads' })}
                 {navItem({ to: '/tools/image-annotator', label: 'Image Annotator' })}
                 {navItem({ to: '/tools/text-annotator', label: 'Text Annotator' })}
+                {navItem({ to: '/tools/video-annotator', label: 'Video Annotator' })}
                 {navItem({ to: '/tools/download-outputs', label: 'Download Outputs' })}
               </div>
             </details>

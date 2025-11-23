@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { NAV_TABS } from './project-board/data.js'
 import Sidebar from '../components/Sidebar.jsx'
 import Topbar from '../components/Topbar.jsx'
 import { getToken } from '../utils/auth.js'
@@ -16,7 +17,8 @@ function formatProjectName(slug) {
 }
 
 export default function ProjectTaskBoard() {
-  const { projectId, tabId } = useParams()
+  const { projectId } = useParams()
+  const [activeTab, setActiveTab] = useState('task');
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -24,10 +26,12 @@ export default function ProjectTaskBoard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  const [reviewTasks, setReviewTasks] = useState([]);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState('');
   const preservedState = location.state
   const projectFromState = preservedState?.project
   const projectName = projectFromState?.name || formatProjectName(projectId)
-  const taskType = projectFromState?.task_type
   const projectStatus = projectFromState?.status || 'Active'
 
   useEffect(() => {
@@ -62,6 +66,41 @@ export default function ProjectTaskBoard() {
 
     fetchProjectTasks()
   }, [projectId])
+
+  useEffect(() => {
+    if (activeTab !== 'review') return;
+
+    async function fetchReviewTasks() {
+      setReviewLoading(true);
+      setReviewError('');
+      const token = getToken();
+      if (!token) {
+        setReviewError('You need to log in to view review tasks.');
+        setReviewLoading(false);
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE}/tasks/admin/projects/${projectId}/review-tasks`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.detail || 'Unable to load review tasks.');
+        }
+
+        const data = await response.json();
+        setReviewTasks(Array.isArray(data) ? data : []);
+      } catch (err) {
+        setReviewError(err.message);
+      } finally {
+        setReviewLoading(false);
+      }
+    }
+
+    fetchReviewTasks();
+  }, [projectId, activeTab]);
 
   return (
     <div className="min-h-screen bg-slate-50 md:flex">
@@ -101,66 +140,138 @@ export default function ProjectTaskBoard() {
                 </span>
               </div>
 
-              <div className="pt-4 flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-slate-800">Tasks ({loading ? '...' : tasks.length})</h2>
-                <button
-                  type="button"
-                  onClick={() => navigate(`/tools/json-to-excel?project_id=${projectId}`)}
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600"
-                >
-                  Import Tasks
-                </button>
+              <div className="border-b border-slate-200">
+                <nav className="-mb-px flex gap-6 text-sm">
+                  {NAV_TABS.map(tab => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`whitespace-nowrap border-b-2 py-3 font-medium ${
+                        activeTab === tab.id
+                          ? 'border-brand-600 text-brand-600'
+                          : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </nav>
               </div>
             </header>
 
-            <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
-              <table className="min-w-full border-collapse text-sm">
-                <thead className="bg-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="p-3">Task ID</th>
-                    <th className="p-3">Task Name</th>
-                    <th className="p-3">File Name</th>
-                    <th className="p-3">Allocated To</th>
-                    <th className="p-3">Actions</th>
-                    <th className="p-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-slate-700">
-                  {loading ? (
-                    <tr><td colSpan="4" className="p-6 text-center text-slate-500">Loading tasks…</td></tr>
-                  ) : error ? (
-                    <tr><td colSpan="4" className="p-6 text-center text-red-600">{error}</td></tr>
-                  ) : tasks.length === 0 ? (
-                    <tr><td colSpan="4" className="p-6 text-center text-slate-500">No tasks found for this project.</td></tr>
-                  ) : (
-                    tasks.map(task => (
-                      <tr key={task.task_id || task.id} className="hover:bg-slate-50">
-                        <td className="p-3 font-mono text-xs">{task.task_id || 'N/A'}</td>
-                        <td className="p-3 font-medium">{task.task_name || 'N/A'}</td>
-                        <td className="p-3">{task.file_name || 'N/A'}</td>
-                        <td className="p-3">{task.email || <span className="text-slate-400">Not Allocated</span>}</td>
-                        <td className="p-3">
-                          {taskType === 'Image Annotation' && (
-                            <button
-                              type="button"
-                              onClick={() => navigate(`/tools/image-annotator/${task.id}`)}
-                              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600"
-                            >
-                              Start
-                            </button>
-                          )}
-                        </td>
-                        <td className="p-3">
-                          <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
-                            {task.status || 'NEW'}
-                          </span>
-                        </td>
+            {activeTab === 'task' && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-semibold text-slate-800">Tasks ({loading ? '...' : tasks.length})</h2>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/tools/json-to-excel?project_id=${projectId}`)}
+                    className="rounded-lg border border-slate-200 px-5 py-2.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600"
+                  >
+                    Import Tasks
+                  </button>
+                </div>
+                <div className="overflow-hidden rounded-xl border border-slate-200">
+                  <table className="min-w-full border-collapse text-sm">
+                    <thead className="bg-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="p-3">Task ID</th>
+                        <th className="p-3">Task Name</th>
+                        <th className="p-3">File Name</th>
+                        <th className="p-3">Allocated To</th>
+                        <th className="p-3">Actions</th>
+                        <th className="p-3">Status</th>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {loading ? (
+                        <tr><td colSpan="6" className="p-6 text-center text-slate-500">Loading tasks…</td></tr>
+                      ) : error ? (
+                        <tr><td colSpan="6" className="p-6 text-center text-red-600">{error}</td></tr>
+                      ) : tasks.length === 0 ? (
+                        <tr><td colSpan="6" className="p-6 text-center text-slate-500">No tasks found for this project.</td></tr>
+                      ) : (
+                        tasks.map(task => (
+                          <tr key={task.task_id || task.id} className="hover:bg-slate-50">
+                            <td className="p-3 font-mono text-xs">{task.task_id || 'N/A'}</td>
+                            <td className="p-3 font-medium">{task.task_name || 'N/A'}</td>
+                            <td className="p-3">{task.file_name || 'N/A'}</td>
+                            <td className="p-3">{task.email || <span className="text-slate-400">Not Allocated</span>}</td>
+                            <td className="p-3">
+                              {projectFromState?.data_category === 'image' ? (
+                                <button
+                                  type="button"
+                                  onClick={() => navigate(`/tools/image-annotator/${task.id}`)}
+                                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600"
+                                >
+                                  Start
+                                </button>
+                              ) : projectFromState?.data_category === 'text' ? (
+                                <button
+                                  type="button"
+                                  onClick={() => navigate(`/tools/text-annotator/${task.id}`)}
+                                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600"
+                                >
+                                  Start
+                                </button>
+                              ) : (
+                                <span className="text-slate-400 text-xs">-</span>
+                              ) }
+                            </td>
+                            <td className="p-3">
+                              <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
+                                {task.status || 'NEW'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'review' && (
+              <div className="mt-4">
+                <h2 className="text-lg font-semibold text-slate-800 mb-4">Tasks for Review ({reviewLoading ? '...' : reviewTasks.length})</h2>
+                <div className="overflow-hidden rounded-xl border border-slate-200">
+                  <table className="min-w-full border-collapse text-sm">
+                    <thead className="bg-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="p-3">Task Name</th>
+                        <th className="p-3">Completed By</th>
+                        <th className="p-3">Submitted At</th>
+                        <th className="p-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {reviewLoading ? (
+                        <tr><td colSpan="4" className="p-6 text-center text-slate-500">Loading tasks for review…</td></tr>
+                      ) : reviewError ? (
+                        <tr><td colSpan="4" className="p-6 text-center text-red-600">{reviewError}</td></tr>
+                      ) : reviewTasks.length === 0 ? (
+                        <tr><td colSpan="4" className="p-6 text-center text-slate-500">No tasks are ready for review.</td></tr>
+                      ) : (
+                        reviewTasks.map(task => (
+                          <tr key={task.task_id} className="hover:bg-slate-50">
+                            <td className="p-3 font-medium">{task.task_name || 'N/A'}</td>
+                            <td className="p-3">{task.annotator_email}</td>
+                            <td className="p-3">{new Date(task.submitted_at).toLocaleString()}</td>
+                            <td className="p-3 text-right">
+                              <button className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600">
+                                Assign for Review
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </section>
         </div>
       </main>

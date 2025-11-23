@@ -56,3 +56,16 @@ class ProjectTask(Base):
         Index("idx_project_tasks_created_at", "created_at"),
         Index("idx_project_tasks_payload_gin", payload, postgresql_using="gin"),
     )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "project_id": self.project_id,
+            "task_id": self.task_id,
+            "task_name": self.task_name,
+            "file_name": self.file_name,
+            "status": self.status,
+            "payload": self.payload,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
