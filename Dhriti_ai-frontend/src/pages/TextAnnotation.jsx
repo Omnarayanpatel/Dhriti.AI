@@ -16,17 +16,16 @@ import { getToken } from "../utils/auth.js";
  * Uses localStorage for persistence.
  */
 
-const DEFAULT_LABELS = ["PERSON", "EMAIL", "ORGANIZATION", "LOCATION", "DATE", "TIME", "POSITIVE", "NEGATIVE"];
-const COLOR_OPTIONS = [
+const DEFAULT_LABELS = ["PERSON", "EMAIL", "ORGANIZATION", "LOCATION", "DATE", "TIME", "POSITIVE", "NEGATIVE"]; // Fallback
+const DEFAULT_COLOR_OPTIONS = [
   { id: "yellow", class: "bg-yellow-200", hex: "#FEF08A" },
   { id: "green", class: "bg-emerald-200", hex: "#BBF7D0" },
   { id: "blue", class: "bg-sky-200", hex: "#BFDBFE" },
   { id: "pink", class: "bg-pink-200", hex: "#FBCFE8" },
   { id: "violet", class: "bg-violet-200", hex: "#E9D5FF" },
 ];
-
-const SENTIMENTS = ["Positive", "Negative", "Neutral"];
-const EMOTIONS = ["Happy", "Sad", "Angry", "Surprised", "Calm"];
+const DEFAULT_SENTIMENTS = ["Positive", "Negative", "Neutral"];
+const DEFAULT_EMOTIONS = ["Happy", "Sad", "Angry", "Surprised", "Calm"];
 
 const API_BASE = 'http://localhost:8000';
 
@@ -46,7 +45,11 @@ export default function TextAnnotationPage() {
     const s = localStorage.getItem("tat_labels_v4");
     return s ? JSON.parse(s) : DEFAULT_LABELS;
   });
-  const [chosenColor, setChosenColor] = useState(COLOR_OPTIONS[0].class);
+  const [colorOptions, setColorOptions] = useState(DEFAULT_COLOR_OPTIONS);
+  const [sentiments, setSentiments] = useState(DEFAULT_SENTIMENTS);
+  const [emotions, setEmotions] = useState(DEFAULT_EMOTIONS);
+
+  const [chosenColor, setChosenColor] = useState(DEFAULT_COLOR_OPTIONS[0].class);
 
   // annotations map per task id
   const [annotationsMap, setAnnotationsMap] = useState(() => {
@@ -89,7 +92,18 @@ export default function TextAnnotationPage() {
   const [mappingProjects, setMappingProjects] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [projectColumns, setProjectColumns] = useState([]);
-  const [mapping, setMapping] = useState({ title: '', text: '' });
+  const [mapping, setMapping] = useState({
+    title: '',
+    text: '',
+    sentiments: DEFAULT_SENTIMENTS.join(', '),
+    emotions: DEFAULT_EMOTIONS.join(', '),
+  });
+  const [labelConfigs, setLabelConfigs] = useState(() => 
+    DEFAULT_LABELS.map((label, index) => ({
+      text: label,
+      color: DEFAULT_COLOR_OPTIONS[index % DEFAULT_COLOR_OPTIONS.length]
+    }))
+  );
   const [mappingLoading, setMappingLoading] = useState(false);
   const [mappingError, setMappingError] = useState('');
 
@@ -129,6 +143,20 @@ export default function TextAnnotationPage() {
             if (titleRule && taskData[titleRule.source_path]) {
               taskTitle = taskData[titleRule.source_path];
             }
+
+            // Find annotation settings within the layout array
+            const metaBlock = Array.isArray(data.template.layout)
+              ? data.template.layout.find(item => item.type === 'meta')
+              : null;
+            const settings = metaBlock ? metaBlock.props?.annotation_settings : null;
+
+            if (settings?.labels) setLabels(settings.labels);
+            if (settings?.colors) {
+              setColorOptions(settings.colors);
+              setChosenColor(settings.colors[0]?.class || DEFAULT_COLOR_OPTIONS[0].class);
+            }
+            if (settings?.sentiments) setSentiments(settings.sentiments);
+            if (settings?.emotions) setEmotions(settings.emotions);
           } else {
             // Fallback if no template exists: try common keys
             taskText = taskData.text || taskData.content || '';
@@ -575,12 +603,21 @@ export default function TextAnnotationPage() {
     setMappingLoading(true);
     setMappingError('');
     try {
+      const payload = {
+        title: mapping.title,
+        text: mapping.text,
+        labels: labelConfigs.map(lc => lc.text).filter(Boolean),
+        sentiments: mapping.sentiments.split(',').map(s => s.trim()).filter(Boolean),
+        emotions: mapping.emotions.split(',').map(s => s.trim()).filter(Boolean),
+        colors: [...new Set(labelConfigs.map(lc => lc.color))].filter(Boolean), // Unique colors
+      };
+
       const response = await fetch(`${API_BASE}/text/project/${selectedProjectId}/template`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(mapping),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
@@ -590,6 +627,11 @@ export default function TextAnnotationPage() {
 
       showToast("Mapping applied successfully!");
       setShowMappingModal(false); // Close modal on success
+      // Optionally, you could trigger a re-fetch of the current task to see changes immediately
+      if (taskId) {
+        // This is a simplified call, you might need to re-implement the fetch logic here
+        window.location.reload();
+      }
     } catch (error) {
       console.error("Failed to apply mapping:", error);
       setMappingError(error.message);
@@ -724,8 +766,8 @@ export default function TextAnnotationPage() {
                     <div className="p-3 bg-white rounded border mb-4">
                       <div className="text-sm font-medium mb-2">Color</div>
                       <div className="flex gap-2">
-                        {COLOR_OPTIONS.map((c) => (
-                          <button key={c.id} onClick={() => setChosenColor(c.class)} className={`${c.class} w-9 h-9 rounded border ${chosenColor === c.class ? "ring-2 ring-offset-1" : ""}`} />
+                        {colorOptions.map((c) => (
+                          <button key={c.id} onClick={() => setChosenColor(c.class)} className={`${c.class} w-9 h-9 rounded border ${chosenColor === c.class ? "ring-2 ring-offset-1 ring-indigo-500" : ""}`} />
                         ))}
                       </div>
                     </div>
@@ -752,7 +794,7 @@ export default function TextAnnotationPage() {
                     <div className="p-3 bg-white rounded border mb-4">
                       <div className="text-sm font-medium mb-2">Sentiment</div>
                       <div className="flex gap-2 flex-wrap">
-                        {SENTIMENTS.map(s => (
+                        {sentiments.map(s => (
                           <button key={s} onClick={() => setSentimentForCurrent(s)} className={`px-3 py-1 rounded text-sm ${currentMeta.sentiment === s ? "bg-indigo-600 text-white" : "bg-white border"}`}>{s}</button>
                         ))}
                       </div>
@@ -762,7 +804,7 @@ export default function TextAnnotationPage() {
                       <div className="text-sm font-medium mb-2">Emotion</div>
                       <select value={currentMeta.emotion || ""} onChange={(e) => setEmotionForCurrent(e.target.value)} className="w-full border rounded px-2 py-1 text-sm">
                         <option value="">Select emotion</option>
-                        {EMOTIONS.map(em => <option key={em} value={em}>{em}</option>)}
+                        {emotions.map(em => <option key={em} value={em}>{em}</option>)}
                       </select>
                     </div>
                   </aside>
@@ -912,7 +954,7 @@ export default function TextAnnotationPage() {
         {/* Mapping Modal */}
         {showMappingModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl flex flex-col" style={{ maxHeight: '90vh' }}>
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold">Create Mapping Template</h3>
                 <button onClick={() => setShowMappingModal(false)} className="text-gray-500 hover:text-gray-800">&times;</button>
@@ -920,7 +962,7 @@ export default function TextAnnotationPage() {
 
               {mappingError && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{mappingError}</div>}
 
-              <div className="space-y-4">
+              <div className="space-y-4 overflow-y-auto pr-2">
                 <div>
                   <label htmlFor="project-select" className="block text-sm font-medium text-gray-700 mb-1">Select Project</label>
                   <select
@@ -965,11 +1007,75 @@ export default function TextAnnotationPage() {
                         {projectColumns.map(col => <option key={col} value={col}>{col}</option>)}
                       </select>
                     </div>
+                    <hr className="my-4" />
+                    <div className="text-md font-semibold mb-3">Annotation Settings</div>
+                    
+                    {/* New Labels and Colors UI */}
+                    <div className="space-y-3">
+                      <label className="block text-sm font-medium text-gray-700">Labels and Colors</label>
+                      <div className="space-y-2 rounded-md border p-3 max-h-60 overflow-y-auto">
+                        {labelConfigs.map((config, index) => (
+                          <div key={index} className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded border" style={{ backgroundColor: config.color.hex }}></div>
+                            <input
+                              type="text"
+                              value={config.text}
+                              onChange={(e) => {
+                                const newConfigs = [...labelConfigs];
+                                newConfigs[index].text = e.target.value;
+                                setLabelConfigs(newConfigs);
+                              }}
+                              className="flex-grow border rounded px-2 py-1 text-sm"
+                            />
+                            <select
+                              value={config.color.id}
+                              onChange={(e) => {
+                                const newColor = DEFAULT_COLOR_OPTIONS.find(c => c.id === e.target.value);
+                                const newConfigs = [...labelConfigs];
+                                newConfigs[index].color = newColor;
+                                setLabelConfigs(newConfigs);
+                              }}
+                              className="border rounded p-1 text-sm"
+                            >
+                              {DEFAULT_COLOR_OPTIONS.map(c => <option key={c.id} value={c.id}>{c.id}</option>)}
+                            </select>
+                            <button onClick={() => setLabelConfigs(labelConfigs.filter((_, i) => i !== index))} className="text-red-500 hover:text-red-700 text-lg">&times;</button>
+                          </div>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => setLabelConfigs([...labelConfigs, { text: '', color: DEFAULT_COLOR_OPTIONS[0] }])}
+                        className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+                      >
+                        + Add Label
+                      </button>
+                    </div>
+
+                    <div>
+                      <label htmlFor="sentiments-map" className="block text-sm font-medium text-gray-700 mb-1">Sentiments (comma-separated)</label>
+                      <textarea
+                        id="sentiments-map"
+                        value={mapping.sentiments}
+                        onChange={(e) => setMapping(prev => ({ ...prev, sentiments: e.target.value }))}
+                        className="w-full border rounded px-3 py-2 text-sm"
+                        rows="2"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="emotions-map" className="block text-sm font-medium text-gray-700 mb-1">Emotions (comma-separated)</label>
+                      <textarea
+                        id="emotions-map"
+                        value={mapping.emotions}
+                        onChange={(e) => setMapping(prev => ({ ...prev, emotions: e.target.value }))}
+                        className="w-full border rounded px-3 py-2 text-sm"
+                        rows="2"
+                      />
+                    </div>
                   </>
                 )}
               </div>
 
-              <div className="mt-6 flex justify-end gap-3">
+              <div className="mt-6 flex justify-end gap-3 flex-shrink-0">
                 <button onClick={() => setShowMappingModal(false)} className="px-4 py-2 border rounded text-sm">Cancel</button>
                 <button onClick={handleApplyMapping} disabled={mappingLoading || !selectedProjectId || !mapping.text} className="px-4 py-2 bg-indigo-600 text-white rounded text-sm disabled:bg-indigo-300">
                   {mappingLoading ? 'Applying...' : 'Apply Mapping'}

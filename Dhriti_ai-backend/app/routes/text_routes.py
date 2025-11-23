@@ -1,7 +1,7 @@
 import csv
 import io
 import json
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from pydantic import BaseModel
@@ -32,6 +32,11 @@ class SchemaResponse(BaseModel):
 class TemplateConfigRequest(BaseModel):
     title: Optional[str] = None
     text: str
+    # Add fields for annotation settings
+    labels: Optional[List[str]] = None
+    colors: Optional[List[Dict[str, Any]]] = None
+    sentiments: Optional[List[str]] = None
+    emotions: Optional[List[str]] = None
 
 class UploadedTask(BaseModel):
     id: str
@@ -106,16 +111,25 @@ def create_or_update_template(
     db: Session = Depends(database.get_db)
 ):
     """
-    Creates a new project template configuration for mapping data columns.
+    Creates or updates a project template configuration for mapping data columns,
+    including annotation settings like labels and colors.
     """
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
-    # Define a simple UI layout with a title and a text area.
+    # Group annotation settings into a single object
+    annotation_settings = {
+        "labels": template_config.labels or [],
+        "colors": template_config.colors or [],
+        "sentiments": template_config.sentiments or [],
+        "emotions": template_config.emotions or [],
+    }
+
+    # Define a simple UI layout. We add the settings as a 'meta' block
+    # that other annotation UIs can safely ignore.
     layout = [
-        {"id": "title_display", "type": "Text", "props": {"text": "Title", "variant": "h5"}},
-        {"id": "text_content", "type": "Text", "props": {"text": "Content", "variant": "body1"}}
+        {"id": "meta_settings", "type": "meta", "props": {"annotation_settings": annotation_settings}}
     ]
 
     # Define the rules that map the data source to the layout components.
@@ -135,16 +149,32 @@ def create_or_update_template(
             "source_path": template_config.title
         })
 
-    new_template = ProjectTemplate(
-        project_id=project_id,
-        name=f"Mapping for {project.name}",  # Provide a default name
-        layout=layout,
-        rules=rules
+    # Find the most recent template for this project to update it.
+    existing_template = (
+        db.query(ProjectTemplate)
+        .filter(ProjectTemplate.project_id == project_id)
+        .order_by(ProjectTemplate.created_at.desc())
+        .first()
     )
 
-    db.add(new_template)
+    if existing_template:
+        # Update the existing template
+        existing_template.layout = layout
+        existing_template.rules = rules
+        message = "Template updated successfully"
+    else:
+        # Create a new template if none exists
+        new_template = ProjectTemplate(
+            project_id=project_id,
+            name=f"Mapping for {project.name}",
+            layout=layout,
+            rules=rules,
+        )
+        db.add(new_template)
+        message = "Template created successfully"
+
     db.commit()
-    return {"message": "Template created successfully", "project_id": project_id}
+    return {"message": message, "project_id": project_id}
 
 @router.post(
     "/projects/{project_id}/next-task",
