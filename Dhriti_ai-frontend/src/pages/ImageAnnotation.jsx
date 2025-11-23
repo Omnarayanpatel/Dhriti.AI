@@ -1,8 +1,10 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getToken } from '../utils/auth.js';
+import { getToken, getUserRole } from '../utils/auth.js';
 import Sidebar from '../components/Sidebar.jsx';
 import Topbar from '../components/Topbar.jsx';
+
+import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react'
 
 const API_BASE = 'http://localhost:8000';
 
@@ -10,8 +12,10 @@ function ImageAnnotatorComponent() {
   const containerRef = useRef(null);
   const imgRef = useRef(null);
   const svgRef = useRef(null);
+  const fileInputRef = useRef(null);
   const { taskId } = useParams(); // Get task ID from URL
   const navigate = useNavigate();
+  const userRole = getUserRole();
 
   const [imageSrc, setImageSrc] = useState(null);
   const [naturalSize, setNaturalSize] = useState({ w: 0, h: 0 });
@@ -21,12 +25,17 @@ function ImageAnnotatorComponent() {
   // Interaction state for moving/resizing
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [submissionStatus, setSubmissionStatus] = useState(null); // For success/end-of-project messages
 
   const [interaction, setInteraction] = useState(null);
   // tools: select | bbox | polygon | seg | keypoint | cuboid
   const [tool, setTool] = useState('select');
   const [isDrawing, setIsDrawing] = useState(false);
   const [current, setCurrent] = useState(null); // temp drawing state
+
+  // Ruler and guide lines
+  const [showRuler, setShowRuler] = useState(false);
+  const [rulerPos, setRulerPos] = useState(null);
 
   // labeling
   const [labels, setLabels] = useState(['Person', 'Car', 'Bike', 'Tree']);
@@ -58,11 +67,13 @@ function ImageAnnotatorComponent() {
       if (!taskId) {
         // If there's no task ID, we're in setup mode. Just do nothing.
         // The setup UI is handled by a different effect.
+        setLoading(false);
         return;
       }
 
       setLoading(true);
       setError('');
+      setSubmissionStatus(null);
       const token = getToken();
       if (!token) {
         setError('You must be logged in to annotate tasks.');
@@ -81,7 +92,7 @@ function ImageAnnotatorComponent() {
         const taskData = await response.json(); // This is the ImageTaskResponse from the backend
 
         taskDataForMapping = taskData; // Store for use in handleSaveMapping
-        if (!taskData.template) {
+        if (!taskData.template || !taskData.template.layout || !taskData.template.rules) {
           // No template exists, so we need to ask the user to map the image field.
           setPayloadKeys(Object.keys(taskData.task.payload || {}));
           // Auto-select a likely image key
@@ -92,16 +103,11 @@ function ImageAnnotatorComponent() {
           setNeedsMapping(true);
           return;
         }
-        const imageFieldRule = taskData.template.rules?.find(r => {
-          const layoutComponent = taskData.template.layout?.find(l => l.id === r.component_key);
-          return layoutComponent?.type === 'Image';
-      
-        })
-        const imageFieldKey = imageFieldRule?.source_path;
-
 
         // Find the image component in the layout and the rule that maps to it.
         const imageComponent = taskData.template.layout?.find(l => l.type === 'Image');
+        const imageFieldRule = taskData.template.rules?.find(r => r.component_key === imageComponent?.id && r.target_prop === 'src');
+        const imageFieldKey = imageFieldRule?.source_path;
         if (!imageComponent || !imageFieldKey) {
           // Template exists but is missing the image mapping.
           setError(
@@ -113,7 +119,8 @@ function ImageAnnotatorComponent() {
         // We have a valid template and mapping.
         setNeedsMapping(false);
         setTemplate(taskData.template);
-        const imageUrl = taskData.task.payload[imageFieldKey];
+        const imageUrl = taskData.task?.payload?.[imageFieldKey];
+
         if (!imageUrl) {
           throw new Error(`Image URL not found in task payload using key: '${imageFieldKey}'.`);
 
@@ -152,7 +159,7 @@ function ImageAnnotatorComponent() {
     setError('');
     const token = getToken();
 
-    const projectIdToUse = taskId ? template.project_id : setupProjectId;
+    const projectIdToUse = taskId ? (taskDataForMapping?.task?.project_id || template?.project_id) : setupProjectId;
     if (!projectIdToUse) {
       setError('A project must be selected.');
       return;
@@ -195,7 +202,8 @@ function ImageAnnotatorComponent() {
           });
           if (!response.ok) throw new Error('Could not fetch projects.');
           const data = await response.json();
-          setProjects(data);
+          const imageProjects = data.filter(p => p.data_category === 'image');
+          setProjects(imageProjects);
         } catch (err) {
           setError(err.message);
         }
@@ -246,12 +254,76 @@ function ImageAnnotatorComponent() {
     }
   }, [mappingRules, sampleTask, taskId]);
 
+  const handleLocalImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (loadEvent) => {
+        // Enter local annotation mode
+        setImageSrc(loadEvent.target.result);
+        setAnnotations([]);
+        setError('');
+        setLoading(false);
+        setNeedsMapping(false);
+        setSubmissionStatus(null);
+        setTool('select');
+        // Reset the file input so the same file can be uploaded again
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleGoToSetup = () => {
+    // Reset state to show the setup screen
+    setImageSrc(null);
+    setAnnotations([]);
+    // Navigate to the base URL if we are on a task-specific URL
+    if (taskId) navigate('/tools/image-annotator');
+  };
+
+  const handleDownloadAnnotations = () => {
+    if (annotations.length === 0) {
+      alert("No annotations to download.");
+      return;
+    }
+
+    // Scale annotations to natural image size, similar to submission logic
+    const scaleX = naturalSize.w > 0 ? naturalSize.w / displaySize.w : 1;
+    const scaleY = naturalSize.h > 0 ? naturalSize.h / displaySize.h : 1;
+
+    const payload = {
+      image_dimensions: { width: naturalSize.w, height: naturalSize.h },
+      annotations: annotations.map((a) => {
+        const scaledAnnotation = { ...a };
+        if (a.box) scaledAnnotation.box = { x: a.box.x * scaleX, y: a.box.y * scaleY, w: a.box.w * scaleX, h: a.box.h * scaleY };
+        if (a.points) scaledAnnotation.points = a.points.map(p => ({ x: p.x * scaleX, y: p.y * scaleY }));
+        if (a.x !== undefined) { scaledAnnotation.x = a.x * scaleX; scaledAnnotation.y = a.y * scaleY; }
+        if (a.front) scaledAnnotation.front = { x: a.front.x * scaleX, y: a.front.y * scaleY, w: a.front.w * scaleX, h: a.front.h * scaleY };
+        if (a.back) scaledAnnotation.back = { x: a.back.x * scaleX, y: a.back.y * scaleY, w: a.back.w * scaleX, h: a.back.h * scaleY };
+        return scaledAnnotation;
+      }),
+    };
+
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", "annotations.json");
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+  };
+
   useEffect(() => {
     function update() {
       const cont = containerRef.current;
       if (!cont) return;
-      const maxW = Math.min(1100, cont.clientWidth - 40);
-      const maxH = 700;
+      const SIDEBAR_WIDTH = 320; // w-80
+      const GAP = 16; // gap-4
+      const maxW = Math.min(1100, cont.clientWidth - SIDEBAR_WIDTH - GAP - 40); // -40 for padding
+      const maxH = 620; // Match sidebar height
       if (naturalSize.w && naturalSize.h) {
         const aspect = naturalSize.w / naturalSize.h;
         let w = maxW;
@@ -374,8 +446,10 @@ function ImageAnnotatorComponent() {
   };
 
   const onMouseMove = (e) => {
+    const pos = getRelativeCoords(e);
+    setRulerPos(pos);
+
     if (interaction) {
-      const pos = getRelativeCoords(e);
       const dx = pos.x - interaction.startPos.x;
       const dy = pos.y - interaction.startPos.y;
 
@@ -413,11 +487,9 @@ function ImageAnnotatorComponent() {
       return;
     }
 
-    if (!isDrawing || !current || !svgRef.current) {
+    if (!isDrawing || !current) {
       return;
     }
-
-    const pos = getRelativeCoords(e);
 
     if (current.type === 'bbox') {
       const x = Math.min(current.box.x, pos.x);
@@ -443,6 +515,11 @@ function ImageAnnotatorComponent() {
       }
     }
   };
+
+  const onMouseLeave = () => {
+    if (interaction) setInteraction(null);
+    setRulerPos(null);
+  }
 
   const finishCurrentPolygon = () => {
     if (!current || !(current.type === 'polygon' || current.type === 'seg')) return;
@@ -558,7 +635,7 @@ function ImageAnnotatorComponent() {
 
   const ptsToStr = (pts) => pts.map((p) => `${p.x},${p.y}`).join(' ');
 
-  const handleSubmit = async () => {
+  const handleSubmitAndNext = async () => {
     const token = getToken();
     if (!token) {
       alert('Session expired. Please log in again.');
@@ -582,18 +659,43 @@ function ImageAnnotatorComponent() {
     };
 
     try {
-      // This is a hypothetical endpoint. You will need to create it.
-      const response = await fetch(`${API_BASE}/tasks/image/${taskId}/annotations`, {
+      setSubmissionStatus('success');
+      // 1. Submit annotations for the current task
+      const submitResponse = await fetch(`${API_BASE}/tasks/image/${taskId}/annotations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload),
       });
-      if (!response.ok) throw new Error('Failed to submit annotations.');
-      alert('✅ Annotations submitted successfully!');
-      // Optionally, navigate to the next task or back to the project board
-      // navigate('/projects');
+
+      if (!submitResponse.ok) {
+        const errData = await submitResponse.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Failed to submit annotations.');
+      }
+
+      // 2. Fetch the next task ID
+      const nextTaskResponse = await fetch(`${API_BASE}/tasks/image/${taskId}/next`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!nextTaskResponse.ok) {
+        // This could mean it's the last task, or an error occurred.
+        // Assume any non-OK response means the end of the project queue.
+        setSubmissionStatus('complete');
+        setTimeout(() => navigate('/projects'), 2500); // Wait before redirecting
+        return;
+      }
+
+      const nextTaskData = await nextTaskResponse.json();
+      if (nextTaskData?.next_task_id) {
+        navigate(`/annotate/image/${nextTaskData.next_task_id}`);
+        setSubmissionStatus(null); // Reset for the new task
+      } else {
+        // The request was successful, but no next task ID was returned.
+        setSubmissionStatus('complete');
+        setTimeout(() => navigate('/projects'), 2500); // Wait before redirecting
+      }
     } catch (err) {
-      console.error(err);
+      setSubmissionStatus(null);
       alert(`Submission failed: ${err.message}`);
     }
   };
@@ -635,17 +737,69 @@ function ImageAnnotatorComponent() {
 
   return (
     <div ref={containerRef} className="p-4 bg-gray-50 min-h-screen">
-      <div className="flex items-center gap-3 mb-3">
+      {/* Hidden file input for direct image upload */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleLocalImageUpload}
+        className="hidden"
+        accept="image/*"
+      />
+
+      {/* Page Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          {/* New Menu Button - Admin Only */}
+          {userRole === 'admin' && (
+            <Menu as="div" className="relative">
+              <MenuButton className="p-2 rounded-lg bg-white border border-slate-200 hover:bg-gray-100">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                </svg>
+              </MenuButton>
+              <MenuItems
+                transition
+                className="absolute left-0 z-10 mt-2 w-56 origin-top-left rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 transition focus:outline-none data-[closed]:scale-95 data-[closed]:transform data-[closed]:opacity-0 data-[enter]:duration-100 data-[leave]:duration-75 data-[enter]:ease-out data-[leave]:ease-in"
+              >
+                <MenuItem>
+                  <button onClick={() => fileInputRef.current?.click()} className="block w-full text-left px-4 py-2 text-sm text-gray-700 data-[focus]:bg-gray-100">Upload & Annotate</button>
+                </MenuItem>
+                <MenuItem>
+                  <button onClick={handleGoToSetup} className="block w-full text-left px-4 py-2 text-sm text-gray-700 data-[focus]:bg-gray-100">Project Setup / Map Data</button>
+                </MenuItem>
+                {/* Download option for local annotation mode */}
+                {!taskId && imageSrc && (
+                  <MenuItem>
+                    <button onClick={handleDownloadAnnotations} className="block w-full text-left px-4 py-2 text-sm text-gray-700 data-[focus]:bg-gray-100">Download Annotations</button>
+                  </MenuItem>
+                )}
+              </MenuItems>
+            </Menu>
+          )}
+          <h1 className="text-xl font-semibold text-slate-800">Image Annotator</h1>
+        </div>
+        <div className="flex gap-2">
+          {imageSrc && <button className="px-4 py-2 rounded bg-red-500 text-white" onClick={deleteSelected}>Delete</button>}
+          {taskId && (
+            <button className="px-4 py-2 rounded bg-green-600 text-white" onClick={handleSubmitAndNext}>Submit & Next</button>
+          )}
+        </div>
+      </div>
+
+      {/* Toolbar */}
+      <div className="flex items-center gap-4 mb-4">
         <div className="flex gap-1 bg-white p-1 rounded shadow">
-          {['select', 'bbox','polygon','seg','keypoint','cuboid'].map((t) => (
+          {['select', 'bbox', 'polygon', 'seg', 'keypoint', 'cuboid'].map((t) => (
             <button key={t} onClick={() => startNewTool(t)} className={`px-3 py-1 rounded ${tool===t? 'bg-blue-600 text-white':'bg-gray-100'}`}>
               {t === 'seg' ? 'Seg' : t.charAt(0).toUpperCase() + t.slice(1)}
             </button>
           ))}
-
+          {/* Ruler Toggle Button */}
+          <button onClick={() => setShowRuler(p => !p)} className={`px-3 py-1 rounded ${showRuler ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>
+            Ruler
+          </button>
         </div>
-
-        <div className="ml-3 flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <div className="text-sm text-gray-600">Color:</div>
           <div className="flex gap-1 items-center">
             <input type="color" value={chosenColor} onChange={(e) => handleColorSelect(e.target.value)} className="w-8 h-8 rounded border cursor-pointer" />
@@ -655,14 +809,17 @@ function ImageAnnotatorComponent() {
             ))}
           </div>
         </div>
-
-        <div className="ml-auto flex gap-2">
-          <button className="px-3 py-1 rounded bg-red-500 text-white" onClick={deleteSelected}>Delete</button>
-          <button className="px-3 py-1 rounded bg-green-600 text-white" onClick={handleSubmit}>Submit</button>
-        </div>
       </div>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 mb-3">{error}</div>}
+
+      {submissionStatus && (
+        <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700 mb-3">
+          {submissionStatus === 'success' && '✅ Annotations submitted successfully! Loading next task...'}
+          {submissionStatus === 'complete' && '✅ Project Complete! All tasks have been annotated. Redirecting...'}
+        </div>
+      )}
+
 
       {needsMapping && taskId && (
         <div className="rounded-2xl border border-amber-300 bg-amber-50 p-6 shadow-sm space-y-4">
@@ -701,7 +858,7 @@ function ImageAnnotatorComponent() {
         </div>
       )}
 
-      {!taskId && (
+      {!taskId && !imageSrc && (
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
           <h2 className="text-xl font-semibold text-slate-800">Image Annotation Setup</h2>
           <p className="text-slate-600">
@@ -749,11 +906,12 @@ function ImageAnnotatorComponent() {
       )}
 
 
-      <div className="flex gap-4">
-        <div className="relative bg-white border rounded shadow-md" style={{ width: displaySize.w, height: displaySize.h }}>
+      {imageSrc && <div className="flex gap-4">
+        <div className="relative flex-shrink-0" style={{ width: displaySize.w + (showRuler ? 30 : 0), height: displaySize.h + (showRuler ? 30 : 0) }}>
+          <div className="absolute bg-white border rounded shadow-md" style={{ left: showRuler ? 30 : 0, top: showRuler ? 30 : 0, width: displaySize.w, height: displaySize.h }}>
           {loading ? (
             <div className="w-full h-full flex items-center justify-center text-gray-400">Loading task...</div>
-          ) : imageSrc ? (
+          ) : imageSrc && !needsMapping ? (
             <>
               <img ref={imgRef} src={imageSrc} onLoad={onImageLoad} alt="annotation" style={{ width: displaySize.w, height: displaySize.h, objectFit: 'contain', display: 'block' }} />
               <svg
@@ -764,7 +922,15 @@ function ImageAnnotatorComponent() {
                 onMouseDown={onMouseDown}
                 onMouseMove={onMouseMove}
                 onMouseUp={onMouseUp}
+                onMouseLeave={onMouseLeave}
               >
+                {/* Ruler crosshair guides */}
+                {showRuler && rulerPos && (
+                  <g pointerEvents="none">
+                    <line x1={rulerPos.x} y1={0} x2={rulerPos.x} y2={displaySize.h} stroke="#3b82f6" strokeWidth={0.5} strokeDasharray="3 3" />
+                    <line x1={0} y1={rulerPos.y} x2={displaySize.w} y2={rulerPos.y} stroke="#3b82f6" strokeWidth={0.5} strokeDasharray="3 3" />
+                  </g>
+                )}
                 {/* existing annotations */}
                 {annotations.map((a) => (
                   <g key={a.id}>
@@ -891,6 +1057,35 @@ function ImageAnnotatorComponent() {
           ) : (
             <div className="w-full h-full flex items-center justify-center text-gray-400">No image loaded for this task.</div>
           )}
+          </div>
+
+          {/* Rulers */}
+          {showRuler && !loading && imageSrc && !needsMapping && (
+            <>
+              {/* Top Ruler */}
+              <svg width={displaySize.w} height={30} className="absolute left-[30px] top-0">
+                <rect x={0} y={0} width={displaySize.w} height={30} fill="#f8fafc" stroke="#e2e8f0" />
+                {Array.from({ length: Math.floor(displaySize.w / 50) + 1 }).map((_, i) => (
+                  <g key={`ruler-x-${i}`}>
+                    <line x1={i * 50} y1={20} x2={i * 50} y2={30} stroke="#94a3b8" strokeWidth={1} />
+                    <text x={i * 50 + 2} y={16} fontSize={10} fill="#475569">{i * 50}</text>
+                  </g>
+                ))}
+                {rulerPos && <polygon points={`${rulerPos.x},20 ${rulerPos.x-4},30 ${rulerPos.x+4},30`} fill="#3b82f6" />}
+              </svg>
+              {/* Left Ruler */}
+              <svg width={30} height={displaySize.h} className="absolute left-0 top-[30px]">
+                <rect x={0} y={0} width={30} height={displaySize.h} fill="#f8fafc" stroke="#e2e8f0" />
+                {Array.from({ length: Math.floor(displaySize.h / 50) + 1 }).map((_, i) => (
+                  <g key={`ruler-y-${i}`}>
+                    <line x1={20} y1={i * 50} x2={30} y2={i * 50} stroke="#94a3b8" strokeWidth={1} />
+                    <text x={16} y={i * 50 + 4} fontSize={10} fill="#475569" transform={`rotate(-90 16 ${i*50+4})`}>{i * 50}</text>
+                  </g>
+                ))}
+                {rulerPos && <polygon points={`20,${rulerPos.y} 30,${rulerPos.y-4} 30,${rulerPos.y+4}`} fill="#3b82f6" />}
+              </svg>
+            </>
+          )}
         </div>
 
         {/* sidebar */}
@@ -927,7 +1122,7 @@ function ImageAnnotatorComponent() {
           <div className="mt-3 text-sm text-gray-600">Tip: For polygons/segmentation — click to add points. Press <strong>Finish Polygon</strong> when done.</div>
         </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

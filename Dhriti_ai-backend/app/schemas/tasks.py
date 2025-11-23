@@ -14,6 +14,8 @@ class AssignedProject(BaseModel):
     rating: Optional[float]
     completed_tasks: int
     pending_tasks: int
+    task_type: Optional[str] = None
+    data_category: Optional[str] = None
     status: str
     template_id: Optional[UUID] = None
 

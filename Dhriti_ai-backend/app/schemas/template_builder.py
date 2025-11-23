@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, List, Optional
+from datetime import datetime 
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field, validator
@@ -46,6 +46,12 @@ class TemplateCreateRequest(BaseModel):
     name: str
     layout: List[dict[str, Any]]
     rules: List[dict[str, Any]]
+    
+    # Add fields for annotation settings
+    labels: Optional[List[str]] = None
+    colors: Optional[List[Dict[str, Any]]] = None
+    sentiments: Optional[List[str]] = None
+    emotions: Optional[List[str]] = None
 
     @validator("name")
     def _name_not_empty(cls, value: str) -> str:
@@ -61,6 +67,11 @@ class TemplateResponse(BaseModel):
     name: str
     layout: List[dict[str, Any]]
     rules: List[dict[str, Any]]
+    # These fields are now part of the layout, but we can still return them for convenience
+    labels: Optional[List[str]] = None
+    colors: Optional[List[Dict[str, Any]]] = None
+    sentiments: Optional[List[str]] = None
+    emotions: Optional[List[str]] = None
     created_at: datetime
     updated_at: datetime
     created_by: Optional[int] = None

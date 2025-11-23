@@ -57,5 +57,5 @@ def login(request: LoginRequest, db: Session = Depends(database.get_db)):
     )
     db.commit()
 
-    token = security.create_access_token(data={"sub": user.email, "role": user.role})
+    token = security.create_access_token(data={"sub": user.email, "role": user.role, "user_id": user.id})
     return {"access_token": token, "token_type": "bearer", "role": user.role}

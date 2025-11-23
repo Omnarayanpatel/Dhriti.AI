@@ -62,3 +62,5 @@ Thumbs.db
 *.bak
 *.swp
 Dhriti_ai-backend/app/uploads/
+__pycache__/
+node_modules/
