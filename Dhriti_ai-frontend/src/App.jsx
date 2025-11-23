@@ -17,7 +17,7 @@ import ClientDashboard from './pages/ClientDashboard.jsx';
 import ImageAnnotator from './pages/ImageAnnotation.jsx';
 import ClientUploads from './pages/ClientUploads.jsx';
 import TextAnnotator from './pages/TextAnnotation.jsx';
-
+import VideoAnnotator from './pages/VideoAnnotation.jsx';
 function App() {
   return (
     <Routes>
@@ -133,6 +133,15 @@ function App() {
         element={
           <ProtectedRoute allowedRoles={['admin']}>
             <ImageAnnotator />
+          </ProtectedRoute>
+        }
+      />
+      
+      <Route
+        path="/tools/video-annotator"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <VideoAnnotator />
           </ProtectedRoute>
         }
       />
