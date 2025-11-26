@@ -1099,7 +1099,7 @@ export default function TextAnnotationPage() {
                 <input value={newLabelText} onChange={(e) => setNewLabelText(e.target.value)} placeholder="New label" className="border rounded px-2 py-1 text-sm" />
               )}
               <div className="flex gap-1">
-                {COLOR_OPTIONS.map(c => (
+                {colorOptions.map(c => (
                   <button key={c.id} onClick={() => setChosenColor(c.class)} className={`${c.class} w-6 h-6 rounded border ${chosenColor === c.class ? "ring-2" : ""}`} />
                 ))}
               </div>
