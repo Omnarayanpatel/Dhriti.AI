@@ -15,6 +15,8 @@ import TaskTemplatePlayer from './pages/TaskTemplatePlayer.jsx';
 import DownloadOutput from './pages/DownloadOutput.jsx'; // Import the new component
 import ClientDashboard from './pages/ClientDashboard.jsx';
 import ImageAnnotator from './pages/ImageAnnotation.jsx';
+import VideoAnnotator from './pages/VideoAnnotation.jsx';
+
 import ClientUploads from './pages/ClientUploads.jsx';
 import TextAnnotator from './pages/TextAnnotation.jsx';
 
@@ -157,7 +159,7 @@ function App() {
         path="/tools/video-annotator"
         element={
           <ProtectedRoute allowedRoles={['admin', 'expert', 'vendor', 'user']}>
-            <VideoAnnotation/>
+            <VideoAnnotator/>
           </ProtectedRoute>
         }
       />
