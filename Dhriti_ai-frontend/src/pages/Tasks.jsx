@@ -130,7 +130,7 @@ export default function Tasks() {
     setStartError(''); // Clear previous errors
 
     // If the task type is Image Annotation, fetch the next task and go to the specialized tool.
-    if (assignment.task_type === 'Image Annotation') {
+    if (assignment.data_category === 'image') {
       const token = getToken();
       try {
         const response = await fetch(`${API_BASE}/tasks/projects/${assignment.project_id}/next-task`, {
