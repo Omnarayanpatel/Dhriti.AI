@@ -54,6 +54,11 @@ function ImageAnnotatorComponent() {
   
   // State for the new mapping UI
   const [mappingRules, setMappingRules] = useState([{ component_type: 'Image', target_prop: 'src', source_path: '' }]);
+  // State for the new label configuration UI in setup mode
+  const [labelConfigs, setLabelConfigs] = useState([
+    { text: 'Person', color: '#ef4444' },
+    { text: 'Car', color: '#3b82f6' },
+  ]);
 
   // State for the new setup mode
   const [projects, setProjects] = useState([]);
@@ -120,12 +125,29 @@ function ImageAnnotatorComponent() {
         setNeedsMapping(false);
         setTemplate(taskData.template);
         const imageUrl = taskData.task?.payload?.[imageFieldKey];
+        
+        // Find annotation settings within the layout array
+        const metaBlock = Array.isArray(taskData.template?.layout)
+          ? taskData.template.layout.find(item => item.type === 'meta')
+          : null;
+        const settings = metaBlock ? metaBlock.props?.annotation_settings : null;
+
+        if (settings?.labels && settings.labels.length > 0) {
+          setLabelConfigs(settings.labels); // Store the full config {text, color}
+          setChosenColor(settings.labels[0]?.color || '#ef4444'); // Set default color
+        }
 
         if (!imageUrl) {
           throw new Error(`Image URL not found in task payload using key: '${imageFieldKey}'.`);
 
         } else {
-          setImageSrc(imageUrl);
+          // If the URL is a relative path (starts with '/'), prepend the API base URL.
+          // This allows loading images hosted by your own backend.
+          if (typeof imageUrl === 'string' && imageUrl.startsWith('/')) {
+            setImageSrc(`${API_BASE}${imageUrl}`);
+          } else {
+            setImageSrc(imageUrl);
+          }
         }
         setAnnotations(taskData.annotations || []); // Load existing annotations
       } catch (err) {
@@ -154,6 +176,7 @@ function ImageAnnotatorComponent() {
       return;
     }
     const validRules = mappingRules.filter(r => r.source_path);
+    const validLabels = labelConfigs.filter(l => l.text.trim());
 
     setIsSavingMapping(true);
     setError('');
@@ -171,7 +194,10 @@ function ImageAnnotatorComponent() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ rules: validRules }),
+        body: JSON.stringify({ 
+          rules: validRules,
+          labels: validLabels, // Send the labels to the backend
+        }),
       });
 
       if (!response.ok) {
@@ -216,6 +242,12 @@ function ImageAnnotatorComponent() {
     setSetupProjectId(projectId);
     setSampleTask(null); // Reset sample task on new selection
     if (!projectId) {
+      // Reset to defaults when no project is selected
+      setMappingRules([{ component_type: 'Image', target_prop: 'src', source_path: '' }]);
+      setLabelConfigs([
+        { text: 'Person', color: '#ef4444' },
+        { text: 'Car', color: '#3b82f6' },
+      ]);
       setPayloadKeys([]);
       return;
     }
@@ -232,6 +264,19 @@ function ImageAnnotatorComponent() {
       }
       const sampleTaskData = await response.json();
       setSampleTask(sampleTaskData); // Store the full sample task
+
+      // If the project already has a template with labels in the meta block, load them
+      const metaBlock = Array.isArray(sampleTaskData.template?.layout)
+        ? sampleTaskData.template.layout.find(item => item.type === 'meta')
+        : null;
+      const settings = metaBlock ? metaBlock.props?.annotation_settings : null;
+      if (settings?.labels && settings.labels.length > 0) {
+        setLabelConfigs(settings.labels);
+      } else {
+        // Otherwise, reset to default labels for a new configuration
+        setLabelConfigs([{ text: 'Person', color: '#ef4444' }, { text: 'Car', color: '#3b82f6' }]);
+      }
+
       setPayloadKeys(Object.keys(sampleTaskData.payload || {}));
     } catch (err) {
       setError(err.message);
@@ -239,6 +284,22 @@ function ImageAnnotatorComponent() {
       setSetupLoading(false);
     }
   };
+
+  // --- Handlers for the new label configuration UI ---
+  const handleLabelConfigChange = (index, field, value) => {
+    const newLabels = [...labelConfigs];
+    newLabels[index][field] = value;
+    setLabelConfigs(newLabels);
+  };
+
+  const addLabelConfig = () => {
+    setLabelConfigs(prev => [...prev, { text: '', color: '#10b981' }]);
+  };
+
+  const removeLabelConfig = (index) => {
+    setLabelConfigs(prev => prev.filter((_, i) => i !== index));
+  };
+
 
   // New useEffect to update the image preview in setup mode
   useEffect(() => {
@@ -585,9 +646,18 @@ function ImageAnnotatorComponent() {
 
   const confirmLabel = (addToList = false) => {
     if (!pendingAnnotation) return;
-    const ann = { ...pendingAnnotation, label: labelValue || 'unlabeled' };
+
+    let color = pendingAnnotation.color || chosenColor;
+    // Only auto-select color if we are in a task-based flow and a label is chosen.
+    if (taskId && labelValue) {
+      const labelConfig = labelConfigs.find(l => l.text === labelValue);
+      if (labelConfig) {
+        color = labelConfig.color;
+      }
+    }
+
+    const ann = { ...pendingAnnotation, label: labelValue || 'unlabeled', color: color };
     setAnnotations((p) => [...p, ann]);
-    if (addToList && labelValue && !labels.includes(labelValue)) setLabels((l) => [...l, labelValue]);
     setPendingAnnotation(null);
     setShowLabelModal(false);
     setLabelValue('');
@@ -716,10 +786,18 @@ function ImageAnnotatorComponent() {
 
   const updateSelectedAnnotationLabel = (newLabel) => {
     setAnnotations(prev =>
-      prev.map(a => (a.selected ? { ...a, label: newLabel } : a))
+      prev.map(a => {
+        if (!a.selected) return a;
+
+        let newColor = a.color;
+        // Only auto-select color if we are in a task-based flow.
+        if (taskId) {
+          const labelConfig = labelConfigs.find(l => l.text === newLabel);
+          if (labelConfig) newColor = labelConfig.color;
+        }
+        return { ...a, label: newLabel, color: newColor };
+      })
     );
-    // Also update the label in the labels list if it's new
-    if (newLabel && !labels.includes(newLabel)) setLabels(l => [...l, newLabel]);
   };
 
   const selectedAnnotation = annotations.find(a => a.selected);
@@ -787,29 +865,33 @@ function ImageAnnotatorComponent() {
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center gap-4 mb-4">
-        <div className="flex gap-1 bg-white p-1 rounded shadow">
-          {['select', 'bbox', 'polygon', 'seg', 'keypoint', 'cuboid'].map((t) => (
-            <button key={t} onClick={() => startNewTool(t)} className={`px-3 py-1 rounded ${tool===t? 'bg-blue-600 text-white':'bg-gray-100'}`}>
-              {t === 'seg' ? 'Seg' : t.charAt(0).toUpperCase() + t.slice(1)}
-            </button>
-          ))}
-          {/* Ruler Toggle Button */}
-          <button onClick={() => setShowRuler(p => !p)} className={`px-3 py-1 rounded ${showRuler ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>
-            Ruler
-          </button>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="text-sm text-gray-600">Color:</div>
-          <div className="flex gap-1 items-center">
-            <input type="color" value={chosenColor} onChange={(e) => handleColorSelect(e.target.value)} className="w-8 h-8 rounded border cursor-pointer" />
-            {/* Optionally, keep a few common colors as quick picks */}
-            {['#ef4444', '#10b981', '#3b82f6', '#f97316', '#8b5cf6'].map((c) => (
-              <button key={c} onClick={() => handleColorSelect(c)} style={{ background: c }} className={`w-7 h-7 rounded border ${chosenColor === c ? 'ring-2 ring-offset-1' : ''}`} />
+      {imageSrc && (
+        <div className="flex items-center gap-4 mb-4">
+          <div className="flex gap-1 bg-white p-1 rounded shadow">
+            {['select', 'bbox', 'polygon', 'seg', 'keypoint', 'cuboid'].map((t) => (
+              <button key={t} onClick={() => startNewTool(t)} className={`px-3 py-1 rounded ${tool===t? 'bg-blue-600 text-white':'bg-gray-100'}`}>
+                {t === 'seg' ? 'Seg' : t.charAt(0).toUpperCase() + t.slice(1)}
+              </button>
             ))}
+            {/* Ruler Toggle Button */}
+            <button onClick={() => setShowRuler(p => !p)} className={`px-3 py-1 rounded ${showRuler ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>
+              Ruler
+            </button>
           </div>
+          {/* Only show the color picker in admin/local mode (no taskId) */}
+          {!taskId && (
+            <div className="flex items-center gap-2">
+              <div className="text-sm text-gray-600">Color:</div>
+              <div className="flex gap-1 items-center">
+                <input type="color" value={chosenColor} onChange={(e) => handleColorSelect(e.target.value)} className="w-8 h-8 rounded border cursor-pointer" />
+                {['#ef4444', '#10b981', '#3b82f6', '#f97316', '#8b5cf6'].map((c) => (
+                  <button key={c} onClick={() => handleColorSelect(c)} style={{ background: c }} className={`w-7 h-7 rounded border ${chosenColor === c ? 'ring-2 ring-offset-1' : ''}`} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 mb-3">{error}</div>}
 
@@ -895,10 +977,36 @@ function ImageAnnotatorComponent() {
                 ))}
               </div>
               <div className="flex items-center gap-4">
-                <button onClick={addMappingRule} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">+ Map another text field</button>
+                {/*<button onClick={addMappingRule} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">+ Map another text field</button>*/}
                 <button onClick={handleSaveMapping} disabled={isSavingMapping} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60">
                   {isSavingMapping ? 'Saving...' : 'Save Template and Finish'}
                 </button>
+              </div>
+
+              {/* New Label Configuration Section */}
+              <div className="space-y-4 pt-4">
+                <label className="block text-sm font-medium text-slate-700">3. Configure Labels</label>
+                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  {labelConfigs.map((label, index) => (
+                    <div key={index} className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={label.color}
+                        onChange={(e) => handleLabelConfigChange(index, 'color', e.target.value)}
+                        className="h-10 w-10 rounded-lg border-none p-0"
+                      />
+                      <input
+                        type="text"
+                        value={label.text}
+                        onChange={(e) => handleLabelConfigChange(index, 'text', e.target.value)}
+                        placeholder={`Label ${index + 1}`}
+                        className="flex-grow rounded-lg border border-slate-200 px-3 py-2 focus:border-slate-400 focus:outline-none"
+                      />
+                      <button type="button" onClick={() => removeLabelConfig(index)} className="text-red-500 hover:text-red-700 font-bold text-xl">&times;</button>
+                    </div>
+                  ))}
+                  <button type="button" onClick={addLabelConfig} className="mt-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">+ Add Label</button>
+                </div>
               </div>
             </div>
           )}
@@ -1036,8 +1144,8 @@ function ImageAnnotatorComponent() {
                   <div className="bg-white p-3 rounded shadow border w-[260px]">
                     <div className="text-sm font-medium mb-1">Add label & color</div>
                     <select className="w-full mb-2 p-1 border rounded" value={labelValue} onChange={(e)=>setLabelValue(e.target.value)}>
-                      <option value="">-- choose label --</option>
-                      {labels.map((l)=> <option key={l} value={l}>{l}</option>)}
+                      <option value="">-- Choose Label --</option>
+                      {labelConfigs.map((l) => <option key={l.text} value={l.text}>{l.text}</option>)}
                     </select>
                     <input className="w-full p-1 border rounded mb-2" placeholder="Or type new label" value={labelValue} onChange={(e)=>setLabelValue(e.target.value)} />
                     <div className="mb-2 text-xs text-gray-600">Pick color for this annotation:</div>
@@ -1045,9 +1153,10 @@ function ImageAnnotatorComponent() {
                       <input type="color" value={chosenColor} onChange={(e) => setChosenColor(e.target.value)} className="w-8 h-8 rounded border cursor-pointer" />
                     </div>
                     <div className="flex gap-2 justify-end">
-                      <button className="px-2 py-1 rounded bg-gray-200" onClick={()=>{ setShowLabelModal(false); setPendingAnnotation(null); setLabelValue(''); }}>Cancel</button>
-                      <button className="px-2 py-1 rounded bg-blue-600 text-white" onClick={()=>{ if(pendingAnnotation){ pendingAnnotation.color = chosenColor; } confirmLabel(false); }}>Add</button>
-                      <button className="px-2 py-1 rounded bg-green-600 text-white" onClick={()=>{ if(pendingAnnotation){ pendingAnnotation.color = chosenColor; } confirmLabel(true); }}>Add & Save</button>
+                      <button className="px-2 py-1 rounded bg-gray-200" onClick={()=>{ setShowLabelModal(false); setPendingAnnotation(null); setLabelValue(''); }}>
+                        Cancel
+                      </button>
+                      <button className="px-2 py-1 rounded bg-blue-600 text-white" onClick={()=>{ if(pendingAnnotation && !taskId){ pendingAnnotation.color = chosenColor; } confirmLabel(); }}>Add</button>
                     </div>
                   </div>
                 </div>
@@ -1116,7 +1225,7 @@ function ImageAnnotatorComponent() {
           <hr className="my-2" />
           <div className="text-sm font-medium mb-1">Labels</div>
           <div className="flex flex-wrap gap-2 mb-2">
-            {labels.map((l)=> <div key={l} className="px-2 py-1 bg-gray-100 rounded text-xs">{l}</div>)}
+            {labelConfigs.map((l) => <div key={l.text} style={{ backgroundColor: l.color, color: '#fff', padding: '2px 8px', borderRadius: '99px', fontSize: '12px' }}>{l.text}</div>)}
           </div>
 
           <div className="mt-3 text-sm text-gray-600">Tip: For polygons/segmentation — click to add points. Press <strong>Finish Polygon</strong> when done.</div>
@@ -1144,7 +1253,7 @@ export default function ImageAnnotator() {
 // New AnnotationInspector Component
 function AnnotationInspector({ annotation, labels, onLabelChange, onColorChange }) {
   const [currentLabel, setCurrentLabel] = useState(annotation.label || '');
-
+  
   useEffect(() => {
     setCurrentLabel(annotation.label || '');
   }, [annotation.label]);
@@ -1171,7 +1280,7 @@ function AnnotationInspector({ annotation, labels, onLabelChange, onColorChange 
         <label className="block text-sm font-medium text-gray-700 mb-1">Label:</label>
         <select className="w-full mb-2 p-1 border rounded" value={currentLabel} onChange={handleLabelSelect}>
           <option value="">-- choose label --</option>
-          {labels.map((l)=> <option key={l} value={l}>{l}</option>)}
+          {labels.map((l)=> <option key={l.text} value={l.text}>{l.text}</option>)}
         </select>
         <input
           type="text"

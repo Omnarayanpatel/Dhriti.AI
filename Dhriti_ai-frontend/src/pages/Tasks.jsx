@@ -245,7 +245,7 @@ export default function Tasks() {
                         <td className="p-3">
                           <div className="flex items-center gap-2">
                             <span className="rounded-md border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-600">
-                              {p.assignment_id}
+                              {"#"}
                             </span>
                             <div className="font-medium">{p.project_name}</div>
                           </div>

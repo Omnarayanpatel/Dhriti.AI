@@ -84,6 +84,7 @@ export default function TextAnnotationPage() {
   const [view, setView] = useState("annotate"); // annotate | saved
   const [toast, setToast] = useState(null);
   const [tasksLoading, setTasksLoading] = useState(true);
+  const [submissionStatus, setSubmissionStatus] = useState(null);
   const fileInputRef = useRef(null);
   const [tasksError, setTasksError] = useState(null);
 
@@ -394,6 +395,62 @@ export default function TextAnnotationPage() {
     setNewLabelText("");
     showToast("Custom label added");
   }
+  const handleSubmitAndNext = async () => {
+    const token = getToken();
+    if (!token || !taskId || !task) {
+      alert('Cannot submit: Missing token, task ID, or task data.');
+      return;
+    }
+
+    setSubmissionStatus('submitting');
+    const payload = {
+      task_id: task.task_id, // The backend now expects the string task_id in the payload
+      project_id: task.project_id,
+      annotations: annotationsMap[task.id] || [],
+      ...(metaMap[task.id] && { meta: metaMap[task.id] }),
+      ...(task.template_id && { template_id: task.template_id }),
+    };
+
+    try {
+      // 1. Submit annotations for the current task
+      const submitResponse = await fetch(`${API_BASE}/text/${taskId}/annotations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+
+      if (!submitResponse.ok) {
+        const errData = await submitResponse.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Failed to submit annotations.');
+      }
+
+      setSubmissionStatus('success');
+
+      // 2. Fetch the next task for the same project
+      const nextTaskResponse = await fetch(`${API_BASE}/text/projects/${task.project_id}/next-task`, {
+        method: 'POST', // The endpoint expects a POST request
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!nextTaskResponse.ok) {
+        setSubmissionStatus('complete');
+        setTimeout(() => navigate('/tasks'), 2500); // Redirect to dashboard after completion
+        return;
+      }
+
+      const nextTaskData = await nextTaskResponse.json();
+      if (nextTaskData?.id) {
+        navigate(`/tools/text-annotator/${nextTaskData.id}`);
+        setSubmissionStatus(null);
+      } else {
+        setSubmissionStatus('complete');
+        setTimeout(() => navigate('/tasks'), 2500);
+      }
+    } catch (err) {
+      setSubmissionStatus(null);
+      showToast(`Submission failed: ${err.message || 'An unknown error occurred.'}`, 3000);
+    }
+  };
 
   /* -------- Grammar (LanguageTool) -------- */
   async function runGrammarCheck() {
@@ -664,16 +721,20 @@ export default function TextAnnotationPage() {
           </div>
 
           <div className="flex gap-2 items-center">
-            <button onClick={() => navigate(-1)} className="px-3 py-2 rounded text-sm bg-white border text-gray-700 hover:bg-gray-50">Back to Dashboard</button>
-            <button onClick={() => setView("annotate")} className={`px-3 py-2 rounded text-sm ${view === "annotate" ? "bg-indigo-600 text-white" : "bg-white border"}`}>Annotate</button>
-            <button onClick={() => setView("saved")} className={`px-3 py-2 rounded text-sm ${view === "saved" ? "bg-indigo-600 text-white" : "bg-white border"}`}>View Saved</button>
-            {!taskId && (
-              <><input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".json,.txt,.csv" className="hidden" /><button onClick={() => fileInputRef.current.click()} className="px-3 py-2 rounded text-sm bg-white border">Upload File</button></>
+            {taskId ? (
+              <button onClick={handleSubmitAndNext} className="px-4 py-2 rounded bg-green-600 text-white text-sm" disabled={submissionStatus}>
+                {submissionStatus === 'submitting' ? 'Submitting...' : 'Submit & Next'}
+              </button>
+            ) : (
+              <>
+                <button onClick={() => navigate(-1)} className="px-3 py-2 rounded text-sm bg-white border text-gray-700 hover:bg-gray-50">Back to Dashboard</button>
+                <button onClick={() => setView("annotate")} className={`px-3 py-2 rounded text-sm ${view === "annotate" ? "bg-indigo-600 text-white" : "bg-white border"}`}>Annotate</button>
+                <button onClick={() => setView("saved")} className={`px-3 py-2 rounded text-sm ${view === "saved" ? "bg-indigo-600 text-white" : "bg-white border"}`}>View Saved</button>
+                <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".json,.txt,.csv" className="hidden" />
+                <button onClick={() => fileInputRef.current.click()} className="px-3 py-2 rounded text-sm bg-white border">Upload File</button>
+                <button onClick={() => setShowMappingModal(true)} className="px-3 py-2 rounded text-sm bg-white border">Map Data</button>
+              </>
             )}
-            <button 
-              onClick={() => setShowMappingModal(true)}
-              className="px-3 py-2 rounded text-sm bg-white border"
-            >Map Data</button>
           </div>
         </header>
 
@@ -708,7 +769,8 @@ export default function TextAnnotationPage() {
                       <div className="text-sm text-gray-700">{selection ? selection.text : "Select text to label or check grammar"}</div>
                     </div>
 
-                    {/* Grammar panel */}
+                {/* Grammar panel - Admin only */}
+                {!taskId && (
                     <div className="mt-4">
                       <div className="flex items-center justify-between mb-2">
                         <div className="text-sm font-medium">Grammar</div>
@@ -759,6 +821,7 @@ export default function TextAnnotationPage() {
                         </div>
                       )}
                     </div>
+                )}
                   </div>
 
                   {/* right controls */}
@@ -812,6 +875,7 @@ export default function TextAnnotationPage() {
               </div>
 
               {/* bottom row */}
+              {!taskId && (
               <div className="flex items-center justify-between gap-3 mb-6">
                 <div className="text-sm text-gray-600">Saved annotations: {(annotationsMap[task.id] || []).length}</div>
                 <div className="flex items-center gap-3">
@@ -819,6 +883,7 @@ export default function TextAnnotationPage() {
                   <button onClick={() => exportCurrent()} className="px-3 py-2 border rounded">Export</button>
                 </div>
               </div>
+              )}
             </main>
 
             {/* right panel: structured annotations */}
@@ -867,6 +932,7 @@ export default function TextAnnotationPage() {
                 </div>
               </div>
 
+              {!taskId && (
               <div className="bg-white rounded-xl p-4 border">
                 <div className="flex items-center justify-between mb-2">
                   <div>
@@ -902,6 +968,7 @@ export default function TextAnnotationPage() {
                   ))}
                 </div>
               </div>
+              )}
             </aside>
           </div>
         ) : (

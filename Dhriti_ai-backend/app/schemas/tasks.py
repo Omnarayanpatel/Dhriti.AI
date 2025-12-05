@@ -88,6 +88,7 @@ class ProjectResponse(BaseModel):
     total_tasks_completed: int = 0
     client_id: Optional[int] = None
     client_email: Optional[str] = None
+    has_template: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -95,23 +96,21 @@ class ProjectResponse(BaseModel):
 class ProjectAssignmentRequest(BaseModel):
     user_id: int
     project_id: int
-    status: Optional[str] = None
-    avg_task_time_minutes: Optional[int] = Field(default=None, ge=1)
-    completed_tasks: Optional[int] = Field(default=None, ge=0)
     total_task_assign: Optional[int] = Field(default=None, ge=0)
 
 
 class ProjectAssignmentResponse(BaseModel):
-    assignment_id: int
+    id: int = Field(..., alias="assignment_id")
     user_id: int
     project_id: int
-    status: str
-    avg_task_time_minutes: Optional[int]
-    completed_tasks: int
-    pending_tasks: int
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        from_attributes = True
+        populate_by_name = True
 
+class ProjectUnassignmentRequest(BaseModel):
+    project_id: int
+    user_id: int
 
 class AnnotationCreate(BaseModel):
     task_id: str

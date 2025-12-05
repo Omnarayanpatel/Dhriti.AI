@@ -23,6 +23,7 @@ export default function ProjectTaskBoard() {
   const location = useLocation()
 
   const [tasks, setTasks] = useState([])
+  const [assignedUsers, setAssignedUsers] = useState([]);
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -56,7 +57,8 @@ export default function ProjectTaskBoard() {
         }
 
         const data = await response.json()
-        setTasks(Array.isArray(data) ? data : [])
+        setTasks(Array.isArray(data.tasks) ? data.tasks : []);
+        setAssignedUsers(Array.isArray(data.assigned_users) ? data.assigned_users : []);
       } catch (err) {
         setError(err.message)
       } finally {
@@ -101,6 +103,40 @@ export default function ProjectTaskBoard() {
 
     fetchReviewTasks();
   }, [projectId, activeTab]);
+
+  const handleUnassign = async (userId) => {
+    if (!window.confirm('Are you sure you want to un-assign this user?')) {
+      return;
+    }
+
+    const token = getToken();
+    try {
+      const response = await fetch(`${API_BASE}/tasks/admin/assignments`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          project_id: Number(projectId),
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || 'Failed to un-assign user.');
+      }
+
+      // Refresh the list of assigned users
+      setAssignedUsers(prevUsers => prevUsers.filter(user => user.user_id !== userId));
+      alert('User un-assigned successfully.');
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    }
+  };
+
+  const displayTasks = tasks.filter(task => task.status !== 'submitted');
 
   return (
     <div className="min-h-screen bg-slate-50 md:flex">
@@ -163,7 +199,7 @@ export default function ProjectTaskBoard() {
             {activeTab === 'task' && (
               <div className="mt-4">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-semibold text-slate-800">Tasks ({loading ? '...' : tasks.length})</h2>
+                  <h2 className="text-lg font-semibold text-slate-800">Tasks ({loading ? '...' : displayTasks.length})</h2>
                   <button
                     type="button"
                     onClick={() => navigate(`/tools/json-to-excel?project_id=${projectId}`)}
@@ -189,10 +225,10 @@ export default function ProjectTaskBoard() {
                         <tr><td colSpan="6" className="p-6 text-center text-slate-500">Loading tasks…</td></tr>
                       ) : error ? (
                         <tr><td colSpan="6" className="p-6 text-center text-red-600">{error}</td></tr>
-                      ) : tasks.length === 0 ? (
+                      ) : displayTasks.length === 0 ? (
                         <tr><td colSpan="6" className="p-6 text-center text-slate-500">No tasks found for this project.</td></tr>
                       ) : (
-                        tasks.map(task => (
+                        displayTasks.map(task => (
                           <tr key={task.task_id || task.id} className="hover:bg-slate-50">
                             <td className="p-3 font-mono text-xs">{task.task_id || 'N/A'}</td>
                             <td className="p-3 font-medium">{task.task_name || 'N/A'}</td>
@@ -240,6 +276,7 @@ export default function ProjectTaskBoard() {
                   <table className="min-w-full border-collapse text-sm">
                     <thead className="bg-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                       <tr>
+                        <th className="p-3">Task ID</th>
                         <th className="p-3">Task Name</th>
                         <th className="p-3">Completed By</th>
                         <th className="p-3">Submitted At</th>
@@ -256,12 +293,52 @@ export default function ProjectTaskBoard() {
                       ) : (
                         reviewTasks.map(task => (
                           <tr key={task.task_id} className="hover:bg-slate-50">
+                            <td className="p-3 font-mono text-xs">{task.task_id}</td>
                             <td className="p-3 font-medium">{task.task_name || 'N/A'}</td>
                             <td className="p-3">{task.annotator_email}</td>
                             <td className="p-3">{new Date(task.submitted_at).toLocaleString()}</td>
                             <td className="p-3 text-right">
                               <button className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600">
                                 Assign for Review
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'members' && (
+              <div className="mt-4">
+                <h2 className="text-lg font-semibold text-slate-800 mb-4">Assigned Members ({assignedUsers.length})</h2>
+                <div className="overflow-hidden rounded-xl border border-slate-200">
+                  <table className="min-w-full border-collapse text-sm">
+                    <thead className="bg-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="p-3">User Email</th>
+                        <th className="p-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {loading ? (
+                        <tr><td colSpan="2" className="p-6 text-center text-slate-500">Loading members…</td></tr>
+                      ) : error ? (
+                        <tr><td colSpan="2" className="p-6 text-center text-red-600">{error}</td></tr>
+                      ) : assignedUsers.length === 0 ? (
+                        <tr><td colSpan="2" className="p-6 text-center text-slate-500">No users are assigned to this project.</td></tr>
+                      ) : (
+                        assignedUsers.map(user => (
+                          <tr key={user.user_id} className="hover:bg-slate-50">
+                            <td className="p-3 font-medium">{user.email}</td>
+                            <td className="p-3 text-right">
+                              <button
+                                onClick={() => handleUnassign(user.user_id)}
+                                className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition hover:border-red-500 hover:bg-red-50"
+                              >
+                                Un-assign
                               </button>
                             </td>
                           </tr>

@@ -23,6 +23,7 @@ from app.schemas.tasks import (
     AnnotationCreate,
     AnnotationResponse,
     ProjectAssignmentRequest,
+    ProjectUnassignmentRequest,
     ProjectAssignmentResponse,
     ProjectCreate,
     ProjectResponse,
@@ -45,6 +46,7 @@ class MappingRule(BaseModel):
 
 class AutoTemplateRequest(BaseModel):
     rules: List[MappingRule]
+    labels: Optional[List[Dict[str, Any]]] = None
 
 # --- New Pydantic Model for a single ProjectTask ---
 class ProjectTaskResponse(BaseModel):
@@ -55,6 +57,7 @@ class ProjectTaskResponse(BaseModel):
     file_name: str
     status: str
     payload: Dict[str, Any]
+    template: Optional[Dict[str, Any]] = None # Include template for setup mode
 
     class Config:
         from_attributes = True
@@ -225,12 +228,17 @@ def submit_task_annotations(
     annotation = TaskAnnotation(
         task_id=payload.task_id,
         user_id=user.id,
-        project_id=payload.project_id,
+        project_id=payload.project_id, # This was missing a comma
         template_id=payload.template_id,
         annotations=payload.annotations,
         status="completed",
     )
     db.add(annotation)
+
+    # Update the ProjectTask status to 'submitted'
+    task = db.query(ProjectTask).filter(ProjectTask.task_id == payload.task_id).first()
+    if task:
+        task.status = "submitted"
 
     # Increment the total_tasks_completed count on the project
     project = db.query(Project).filter(Project.id == payload.project_id).first()
@@ -272,15 +280,12 @@ def submit_image_task_annotations(
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
-    # Find the latest template for this task's project to satisfy the DB constraint
-    template = (
-        db.query(ProjectTemplate)
-        .filter(ProjectTemplate.project_id == task.project_id)
-        .order_by(ProjectTemplate.created_at.desc())
-        .first()
-    )
-    if not template:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No template found for this project. Cannot submit annotations.")
+    # Check if the task has already been submitted
+    if task.status == "submitted":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This task has already been submitted.")
+
+    # Find the latest template for this task's project
+    template = db.query(ProjectTemplate).filter(ProjectTemplate.project_id == task.project_id).order_by(ProjectTemplate.created_at.desc()).first()
 
     # Check if an annotation for this task by this user already exists
     existing_annotation = (
@@ -289,11 +294,7 @@ def submit_image_task_annotations(
         .first()
     )
     if existing_annotation:
-        existing_annotation.annotations = payload
-        existing_annotation.template_id = template.id  # Ensure template_id is set on update
-        db.commit()
-        db.refresh(existing_annotation)
-        return existing_annotation
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You have already submitted an annotation for this task.")
 
     annotation = TaskAnnotation(
         task_id=task.task_id,
@@ -304,6 +305,25 @@ def submit_image_task_annotations(
         status="completed",
     )
     db.add(annotation)
+
+    # Update task status and project statistics in a transaction
+    task.status = "submitted"
+    try:
+        project = db.query(Project).filter(Project.id == task.project_id).with_for_update().one()
+        project.total_tasks_completed = (project.total_tasks_completed or 0) + 1
+
+        assignment = db.query(ProjectAssignment).filter(
+            ProjectAssignment.project_id == task.project_id,
+            ProjectAssignment.user_id == user.id
+        ).with_for_update().first()
+
+        if assignment:
+            assignment.completed_tasks = (assignment.completed_tasks or 0) + 1
+            assignment.pending_tasks = max(0, (assignment.total_task_assign or 0) - assignment.completed_tasks)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update project statistics: {str(e)}")
+
     db.commit()
     db.refresh(annotation)
     return annotation
@@ -371,12 +391,18 @@ def list_projects(
     clients = db.query(User).filter(User.id.in_(client_ids)).all() if client_ids else []
     client_map = {client.id: client.email for client in clients}
 
+    # Get all project IDs that have at least one template
+    projects_with_templates = {
+        r[0] for r in db.query(ProjectTemplate.project_id).distinct().all()
+    }
+
     result: list[ProjectResponse] = []
     for project in projects:
         # The values now come directly from the project object.
         total_tasks_added = project.total_tasks_added or 0
         total_tasks_completed = project.total_tasks_completed or 0
 
+        has_template = project.id in projects_with_templates
         client_email = client_map.get(project.client_id)
 
         # Create the response, which already includes the new fields from the model.
@@ -384,6 +410,7 @@ def list_projects(
             update={
                 "total_tasks_added": total_tasks_added,
                 "total_tasks_completed": total_tasks_completed,
+                "has_template": has_template,
             }
         )
         response_data = payload.model_dump()
@@ -425,6 +452,15 @@ def autogenerate_project_template(
     if not project:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
+    # Create the annotation_settings block, similar to text annotation
+    annotation_settings = {
+        "labels": payload.labels or [],
+    }
+    meta_block = {
+        "id": "meta_settings", "type": "meta", "props": {"annotation_settings": annotation_settings}
+    }
+
+
     layout = []
     rules = []
     y_pos = 60
@@ -445,15 +481,23 @@ def autogenerate_project_template(
         })
         y_pos += (480 if rule.component_type == "Image" else 60) + 20
 
+    # Add the meta block to the layout
+    layout.append(meta_block)
+
     creator = db.query(User).filter(User.email == _.email).first()
 
-    template = ProjectTemplate(
-        project_id=project_id, 
-        name=f"Auto-generated for {project.name}", 
-        layout=layout, rules=rules,
-        created_by=creator.id if creator else None
-    )
-    db.add(template)
+    # Upsert logic: Find existing or create new
+    template = db.query(ProjectTemplate).filter(ProjectTemplate.project_id == project_id).order_by(ProjectTemplate.created_at.desc()).first()
+    if template:
+        # If a template exists, update its layout and rules
+        template.layout = layout
+        template.rules = rules
+    else:
+        # If no template exists, create a new one with all required fields
+        template = ProjectTemplate(
+            project_id=project_id, name=f"Auto-generated for {project.name}", layout=layout, rules=rules, created_by=creator.id if creator else None
+        )
+        db.add(template)
     db.commit()
     return {"message": "Template created successfully", "template_id": template.id}
 
@@ -472,7 +516,16 @@ def get_project_sample_task(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No tasks found for this project to use as a sample.",
         )
-    return task
+    
+    # Also fetch the latest template to help pre-fill the setup UI
+    template_model = db.query(ProjectTemplate).filter(ProjectTemplate.project_id == project_id).order_by(ProjectTemplate.created_at.desc()).first()
+    
+    # Manually construct the response to include the template
+    task_response = ProjectTaskResponse.from_orm(task).model_dump()
+    if template_model:
+        task_response['template'] = template_model.to_dict()
+
+    return task_response
 
 @router.get("/admin/projects/{project_id}/tasks", status_code=status.HTTP_200_OK)
 def get_project_tasks(
@@ -484,21 +537,30 @@ def get_project_tasks(
     An endpoint to get all tasks for a given project, including allocation info.
     """
     # 1. Get all users assigned to this project
-    assignments = (
-        db.query(User.email)
+    assignments_query = (
+        db.query(User.id, User.email)
         .join(ProjectAssignment, User.id == ProjectAssignment.user_id)
         .filter(ProjectAssignment.project_id == project_id)
         .all()
     )
-    # Get the email of the first assigned user, if any
-    allocated_email = assignments[0].email if assignments else None
+    
+    # Create a list of assigned users with their IDs and emails
+    assigned_users = [{"user_id": user_id, "email": email} for user_id, email in assignments_query]
+
+    # For simplicity in the task list, we can just show the first assigned user's email
+    # or a count. Let's stick with the first email for now.
+    allocated_email = assigned_users[0]['email'] if assigned_users else None
 
     # 2. Get all tasks for the project
     tasks = db.query(ProjectTask).filter(ProjectTask.project_id == project_id).all()
 
     # 3. Add the allocation email to each task object
     # Pydantic models from SQLAlchemy are not directly mutable, so we convert to dict
-    return [{**task.__dict__, "email": allocated_email} for task in tasks]
+    tasks_response = [{**task.__dict__, "email": allocated_email} for task in tasks]
+
+    # We'll return a dictionary containing both tasks and the list of assigned users
+    # so the frontend can manage them.
+    return {"tasks": tasks_response, "assigned_users": assigned_users}
 
 
 @router.get("/admin/projects/{project_id}/review-tasks", status_code=status.HTTP_200_OK)
@@ -516,7 +578,7 @@ def get_project_review_tasks(
         .join(TaskAnnotation, ProjectTask.task_id == TaskAnnotation.task_id)
         .join(User, TaskAnnotation.user_id == User.id)
         .filter(ProjectTask.project_id == project_id)
-        .filter(TaskAnnotation.status == "completed")
+        .filter(ProjectTask.status == "submitted")
         .order_by(TaskAnnotation.submitted_at.desc())
         .all()
     )
@@ -555,6 +617,22 @@ def get_next_project_task(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+    # Check if the user has reached their assigned task limit for this project
+    assignment = (
+        db.query(ProjectAssignment)
+        .filter(
+            ProjectAssignment.user_id == user.id,
+            ProjectAssignment.project_id == project_id,
+        )
+        .first()
+    )
+    if assignment and assignment.total_task_assign > 0:
+        if (assignment.completed_tasks or 0) >= assignment.total_task_assign:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="You have completed all your assigned tasks for this project.",
+            )
+
     # Find tasks that the user has already completed for this specific project
     completed_task_ids_query = db.query(TaskAnnotation.task_id).filter(
         TaskAnnotation.user_id == user.id,
@@ -570,7 +648,7 @@ def get_next_project_task(
         .filter(
             ProjectTask.project_id == project_id,
             ProjectTask.status == "NEW",
-            Project.status == "Active",
+            Project.status.in_(["Active", "Running","active"]),
             ~ProjectTask.task_id.in_(completed_task_ids_query)
         )
         .order_by(ProjectTask.created_at)  # FIFO assignment
@@ -578,9 +656,18 @@ def get_next_project_task(
     )
 
     if not available_task:
+        # No more tasks for this user. Check if the project is fully completed.
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if project:
+            total_added = project.total_tasks_added or 0
+            total_completed = project.total_tasks_completed or 0
+            if total_added > 0 and total_added == total_completed and project.status != "Completed":
+                project.status = "Completed"
+                db.commit()
+
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No available tasks for this project right now.",
+            detail="No available tasks for this project right now. It may be fully completed.",
         )
 
     return available_task
@@ -626,6 +713,10 @@ def assign_project_to_user(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    # If the project is currently 'Active', change its status to 'Running'
+    if project.status == "Active"or"active":
+        project.status = "Running"
+
     assignment = (
         db.query(ProjectAssignment)
         .filter(
@@ -644,34 +735,51 @@ def assign_project_to_user(
         )
         db.add(assignment)
 
-    if payload.status is not None:
-        assignment.status = payload.status
-    elif not assignment.status:
-        assignment.status = project.status or "Active"
-
-    if payload.avg_task_time_minutes is not None:
-        assignment.avg_task_time_minutes = payload.avg_task_time_minutes
-
     # Set total assigned tasks and completed tasks
     assignment.total_task_assign = payload.total_task_assign or assignment.total_task_assign or 0
-    assignment.completed_tasks = payload.completed_tasks or assignment.completed_tasks or 0
 
     # Pending tasks are now calculated, not set directly
-    assignment.pending_tasks = max(0, assignment.total_task_assign - assignment.completed_tasks)
+    assignment.pending_tasks = max(0, assignment.total_task_assign - (assignment.completed_tasks or 0))
 
     db.commit()
     db.refresh(assignment)
 
-    return ProjectAssignmentResponse(
-        assignment_id=assignment.id,
-        user_id=assignment.user_id,
-        project_id=assignment.project_id,
-        status=assignment.status,
-        avg_task_time_minutes=assignment.avg_task_time_minutes,
-        completed_tasks=assignment.completed_tasks or 0,
-        pending_tasks=assignment.pending_tasks or 0,
+    return assignment
+
+
+@router.delete("/admin/assignments", status_code=status.HTTP_204_NO_CONTENT)
+def unassign_project_from_user(
+    payload: ProjectUnassignmentRequest,
+    _: TokenData = Depends(require_admin),
+    db: Session = Depends(database.get_db),
+):
+    """
+    Removes a user's assignment from a project.
+    If it's the last assignment, the project status is reverted to 'Active'.
+    """
+    assignment = (
+        db.query(ProjectAssignment)
+        .filter(
+            ProjectAssignment.user_id == payload.user_id,
+            ProjectAssignment.project_id == payload.project_id,
+        )
+        .first()
     )
 
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found for this user and project.")
+
+    db.delete(assignment)
+    db.commit()
+
+    # Check if any assignments are left for this project
+    remaining_assignments = db.query(ProjectAssignment).filter(ProjectAssignment.project_id == payload.project_id).count()
+
+    if remaining_assignments == 0:
+        project = db.query(Project).filter(Project.id == payload.project_id).first()
+        if project and project.status == "Running":
+            project.status = "Active"
+            db.commit()
 
 @router.post(
     "/admin/json-to-excel",

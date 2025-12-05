@@ -38,6 +38,15 @@ class TemplateConfigRequest(BaseModel):
     sentiments: Optional[List[str]] = None
     emotions: Optional[List[str]] = None
 
+# This model now correctly mirrors the flat structure sent by the frontend.
+class TextAnnotationCreate(BaseModel):
+    task_id: str
+    project_id: int
+    template_id: Optional[UUID] = None
+    annotations: List[Dict[str, Any]]
+    meta: Optional[Dict[str, Any]] = None
+
+
 class UploadedTask(BaseModel):
     id: str
     title: str
@@ -204,7 +213,7 @@ def get_next_text_project_task(
         .filter(
             ProjectTask.project_id == project_id,
             ProjectTask.status == "NEW",
-            Project.status == "Active",
+            Project.status.in_(["Active", "Running","active"]),
             ~ProjectTask.task_id.in_(completed_task_ids_query)
         )
         .order_by(ProjectTask.created_at)
@@ -215,6 +224,169 @@ def get_next_text_project_task(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No available tasks for this project right now.")
 
     return available_task
+
+# @router.post(
+#     "/{task_id}/annotations",
+#     response_model=AnnotationResponse,
+#     status_code=status.HTTP_201_CREATED,
+#     summary="Submit annotations for a text task",
+# )
+# def submit_text_task_annotations(
+#     task_id: str,
+#     payload: TextAnnotationCreate,
+#     current_user: TokenData = Depends(get_current_user),
+#     db: Session = Depends(database.get_db),
+# ):
+#     """Handles submission from the dedicated text annotation tool."""
+#     user = db.query(User).filter(User.email == current_user.email).first()
+#     if not user:
+#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+#     # Ensure the task ID in the URL matches the one in the payload
+#     if str(task_id) != str(payload.task_id):
+#         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task ID mismatch in URL and payload.")
+
+#     # Check if an annotation for this task by this user already exists
+#     existing_annotation = db.query(TaskAnnotation).filter(
+#         TaskAnnotation.task_id == payload.task_id,
+#         TaskAnnotation.user_id == user.id,
+#         TaskAnnotation.project_id == payload.project_id
+#     ).first()
+#     if existing_annotation:
+#         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You have already submitted this task.")
+
+#     # Combine the 'annotations' list and 'meta' object into a single
+#     # dictionary to be stored in the JSONB 'annotations' column.
+#     combined_annotations = {
+#         "annotations": payload.annotations,
+#         "meta": payload.meta or {},
+#     }
+#     annotation = TaskAnnotation(
+#         task_id=payload.task_id,
+#         user_id=user.id,
+#         project_id=payload.project_id,
+#         template_id=payload.template_id,
+#         annotations=combined_annotations,
+#         status="completed",
+#     )
+#     db.add(annotation)
+
+#     # Update the ProjectTask status to 'submitted'
+#     # It's safer to filter by project_id as well to avoid ambiguity
+#     task = db.query(ProjectTask).filter(
+#         ProjectTask.project_id == payload.project_id,
+#         ProjectTask.task_id == payload.task_id
+#     ).first()
+#     if task:
+#         task.status = "submitted"
+#     else:
+#         # If the task isn't found, we should not proceed with saving the annotation.
+#         db.rollback()
+#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="The specified task does not exist in this project.")
+
+#     # Update project and assignment counts. This logic is crucial for dashboard stats.
+#     # Using a transaction ensures that if any part fails, all changes are rolled back.
+#     try:
+#         project = db.query(Project).filter(Project.id == payload.project_id).with_for_update().one()
+#         project.total_tasks_completed = (project.total_tasks_completed or 0) + 1
+
+#         assignment = db.query(ProjectAssignment).filter(
+#             ProjectAssignment.project_id == payload.project_id,
+#             ProjectAssignment.user_id == user.id
+#         ).with_for_update().first()
+
+#         if assignment:
+#             assignment.completed_tasks = (assignment.completed_tasks or 0) + 1
+#             assignment.pending_tasks = max(0, (assignment.total_task_assign or 0) - assignment.completed_tasks)
+#     except Exception as e:
+#         db.rollback()
+#         raise HTTPException(status_code=500, detail=f"Failed to update project statistics: {e}")
+
+#     db.commit()
+#     db.refresh(annotation)
+#     return annotation
+
+@router.post(
+    "/{task_id}/annotations",
+    response_model=AnnotationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Submit annotations for a text task",
+)
+def submit_text_task_annotations(
+    task_id: UUID,
+    payload: TextAnnotationCreate,
+    current_user: TokenData = Depends(get_current_user),
+    db: Session = Depends(database.get_db),
+):
+    """Handles submission from the dedicated text annotation tool."""
+    user = db.query(User).filter(User.email == current_user.email).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    # Find the task using its primary key (UUID)
+    task = db.query(ProjectTask).filter(ProjectTask.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="The specified task does not exist.")
+
+    # Validate that the payload project_id matches the task's project_id
+    if task.project_id != payload.project_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Project ID mismatch.")
+
+    # Check if an annotation for this task by this user already exists
+    existing_annotation = db.query(TaskAnnotation).filter(
+        TaskAnnotation.task_id == task.task_id, # Use the string task_id from the fetched task
+        TaskAnnotation.user_id == user.id,
+        TaskAnnotation.project_id == payload.project_id
+    ).first()
+    if existing_annotation:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You have already submitted this task.")
+
+    # Find the latest template for this task's project to ensure template_id is not null.
+    template = (
+        db.query(ProjectTemplate)
+        .filter(ProjectTemplate.project_id == task.project_id)
+        .order_by(ProjectTemplate.created_at.desc())
+        .first()
+    )
+    template_id_to_use = payload.template_id or (template.id if template else None)
+
+    # Combine annotations and meta into a single JSONB payload
+    combined_annotations = {
+        "annotations": payload.annotations,
+        "meta": payload.meta or {},
+    }
+
+    annotation = TaskAnnotation(
+        task_id=task.task_id, # Use the string task_id from the fetched task
+        user_id=user.id,
+        project_id=payload.project_id,
+        template_id=template_id_to_use,
+        annotations=combined_annotations,
+        status="completed",
+    )
+    db.add(annotation)
+
+    # Update task status and project statistics in a transaction
+    task.status = "submitted"
+    try:
+        project = db.query(Project).filter(Project.id == payload.project_id).with_for_update().one()
+        project.total_tasks_completed = (project.total_tasks_completed or 0) + 1
+
+        assignment = db.query(ProjectAssignment).filter(
+            ProjectAssignment.project_id == payload.project_id,
+            ProjectAssignment.user_id == user.id
+        ).with_for_update().first()
+
+        if assignment:
+            assignment.completed_tasks = (assignment.completed_tasks or 0) + 1
+            assignment.pending_tasks = max(0, (assignment.total_task_assign or 0) - assignment.completed_tasks)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update project statistics: {str(e)}")
+
+    db.commit()
+    db.refresh(annotation)
+    return annotation
 
 @router.get("/project/{project_id}/tasks", response_model=List[UploadedTask])
 def get_tasks_for_project(project_id: UUID, db: Session = Depends(database.get_db)):

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import re
 from typing import Dict, List, Optional, Sequence
+import shutil
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -14,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.project import Project
+from app.models.project_import_file import ProjectImportFile
 from app.models.project_task import ProjectTask
 from app.routes.protected import get_current_user
 from app.schemas.task_ingest import (
@@ -43,6 +45,9 @@ router = APIRouter(prefix="/imports", tags=["imports"])
 
 UPLOAD_ROOT = Path(__file__).resolve().parents[1] / "uploads"
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+
+IMPORT_FILES_ROOT = Path(__file__).resolve().parents[1] / "import_files"
+IMPORT_FILES_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 def require_admin(current_user: TokenData = Depends(get_current_user)) -> TokenData:
@@ -92,36 +97,13 @@ def _derive_download_name(upload_id: str) -> str:
 
 
 def _delete_upload_artifacts(upload_id: str) -> None:
-    meta_path = _metadata_path(upload_id)
-    source_json_upload: Optional[str] = None
-
-    if meta_path.exists():
-        try:
-            with meta_path.open("r", encoding="utf-8") as handle:
-                metadata = json.load(handle)
-            source_json_upload = metadata.get("from_json_upload_id") or metadata.get("from_json")
-        except Exception:
-            source_json_upload = None
-        finally:
-            try:
-                meta_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-
-    for suffix in (".xlsx", ".json"):
+    """Cleans up temporary files created during the import process."""
+    for suffix in (".xlsx", ".json", ".meta.json"):
         path = UPLOAD_ROOT / f"{upload_id}{suffix}"
         try:
             path.unlink(missing_ok=True)
         except OSError:
             pass
-
-    if source_json_upload:
-        for suffix in (".json", ".meta.json"):
-            source_path = UPLOAD_ROOT / f"{source_json_upload}{suffix}"
-            try:
-                source_path.unlink(missing_ok=True)
-            except OSError:
-                pass
 
 
 @router.post("/json-to-excel", response_model=JsonToExcelResponse)
@@ -155,6 +137,11 @@ async def json_to_excel(
     except Exception as exc:
         excel_path.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=f"Failed to process JSON: {exc}") from exc
+
+    # Save the original JSON content so it can be stored in the database on confirmation.
+    json_path = UPLOAD_ROOT / f"{excel_upload_id}.json"
+    with json_path.open("wb") as f:
+        f.write(contents)
 
     _write_metadata(
         excel_upload_id,
@@ -386,6 +373,7 @@ def confirm_import(
         pending = filtered
 
     for preview_row, _ in pending:
+        # This check is now more important with the batch model
         if not _is_json_serializable(preview_row.payload):
             issues.append(
                 PreviewIssue(
@@ -395,19 +383,57 @@ def confirm_import(
             )
             skipped += 1
             continue
-        to_insert.append(
-            ProjectTask(
-                project_id=payload.project_id,
-                task_id=preview_row.task_id,
-                task_name=preview_row.task_name or "Untitled",
-                file_name=preview_row.file_name or f"row_{preview_row.row - 1}.dat",
-                status="NEW",
-                payload=preview_row.payload,
-            )
-        )
+        # The logic to create ProjectTask objects is moved down
+        # so we can get the batch_id first.
 
     inserted = 0
-    if to_insert:
+    if pending:
+        # Create the import record FIRST to get a batch_id and store file content
+        original_filename = "unknown_file.json"
+        stored_filename = None
+        if payload.excel_upload_id:
+            meta_path = _metadata_path(payload.excel_upload_id)
+            if meta_path.exists():
+                try:
+                    with meta_path.open("r", encoding="utf-8") as handle:
+                        metadata = json.load(handle)
+                    original_filename = metadata.get("source", original_filename)
+
+                    # Move the original file to the permanent import_files directory
+                    temp_json_path = UPLOAD_ROOT / f"{payload.excel_upload_id}.json"
+                    if temp_json_path.exists():
+                        # Create a unique filename to avoid collisions
+                        stored_filename = f"{uuid4().hex}_{original_filename}"
+                        permanent_path = IMPORT_FILES_ROOT / stored_filename
+                        shutil.move(temp_json_path, permanent_path)
+
+                except Exception:
+                    pass
+
+        if not stored_filename:
+            raise HTTPException(status_code=500, detail="Could not process and store the import file.")
+
+        import_file_record = ProjectImportFile(
+            project_id=payload.project_id, file_name=stored_filename
+        )
+        db.add(import_file_record)
+        # We are not using batch_id for now, but we still save the import record.
+        # db.flush() is not needed if we don't need the ID immediately.
+
+        # Now create the tasks
+        to_insert = []
+        for preview_row, _ in pending:
+            to_insert.append(
+                ProjectTask(
+                    project_id=payload.project_id,
+                    task_id=preview_row.task_id,
+                    task_name=preview_row.task_name or "Untitled",
+                    file_name=preview_row.file_name or f"row_{preview_row.row - 1}.dat",
+                    status="NEW",
+                    payload=preview_row.payload,
+                )
+            )
+
         try:
             db.add_all(to_insert)
             db.commit()
@@ -419,8 +445,8 @@ def confirm_import(
                 detail=f"Database constraint error while inserting tasks: {exc.orig}",
             ) from exc
 
-    if inserted > 0 and payload.excel_upload_id:
-        _delete_upload_artifacts(payload.excel_upload_id)
+        if inserted > 0 and payload.excel_upload_id:
+            _delete_upload_artifacts(payload.excel_upload_id)
 
     return ConfirmResponse(inserted=inserted, skipped=skipped, errors=issues)
 

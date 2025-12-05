@@ -40,7 +40,7 @@ const textProjectTypes = [
   { value: 'Text Classification', description: 'Assign one or more labels to the entire text.' },
   { value: 'Sentiment Analysis', description: 'Label the sentiment of the text (Positive, Negative, Neutral).' },
   { value: 'Emotion Classification', description: 'Label emotional tone (Happy, Sad, Angry, Fear, Surprise).' },
-  { value: 'Span Annotation', description: 'General text span labeling (custom segments, custom labels).' },
+  
   { value: 'Relationship Annotation', description: 'Define relation between two annotated entities.' },
   { value: 'Grammar Correction', description: 'Mark errors and add corrected versions of sentences.' },
 ];
@@ -342,7 +342,7 @@ function AddProject() {
                       className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-slate-400 focus:outline-none"
                     />
                   )}
-                </div> */}
+                </div> 
                 <div className="md:col-span-1">
                   <label className="block text-sm font-medium text-slate-600">Task Time (in mins)</label>
                   <input
@@ -375,7 +375,7 @@ function AddProject() {
                     placeholder="Enter max users"
                     className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-slate-400 focus:outline-none"
                   />
-                </div>
+                </div>*/}
               </div>
             </section>
 
