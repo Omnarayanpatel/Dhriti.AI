@@ -12,9 +12,12 @@ function Dashboard() {
     endedProjects: 0,
     runningProjects: 0,
     pendingProjects: 0,
+    tasksForReview: 0, // New state for QC tasks
   });
   const [teamMembers, setTeamMembers] = useState([]);
   const [recentProjects, setRecentProjects] = useState([]);
+  // New state for tasks that need review
+  const [reviewTasks, setReviewTasks] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -40,9 +43,12 @@ function Dashboard() {
           endedProjects: data.ended_projects ?? 0,
           runningProjects: data.running_projects ?? 0,
           pendingProjects: data.pending_projects ?? 0,
+          tasksForReview: data.tasks_for_review ?? 0, // Assuming API provides this
         });
         setTeamMembers(data.team_members || []);
         setRecentProjects(data.recent_projects || []);
+        // Assuming API provides a list of tasks for review
+        setReviewTasks(data.review_tasks || []);
       } catch (err) {
         setError(err.message);
       } finally {
@@ -87,7 +93,7 @@ function Dashboard() {
           ) : (
             <>
               {/* ---- New Premium Stat Boxes ---- */}
-              <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-5">
 
                 <div className="rounded-2xl p-6 bg-gradient-to-br from-green-500 to-green-700 shadow-lg text-white hover:scale-[1.03] cursor-pointer transition-all">
                   <p className="text-lg font-medium">Total Projects</p>
@@ -111,6 +117,12 @@ function Dashboard() {
                   <p className="text-lg font-medium">Pending Projects</p>
                   <h2 className="text-4xl font-bold mt-1">{stats.pendingProjects}</h2>
                   <p className="opacity-80 text-sm mt-1">On Discussion</p>
+                </div>
+
+                <div className="rounded-2xl p-6 bg-gradient-to-br from-purple-500 to-purple-700 shadow-lg text-white hover:scale-[1.03] cursor-pointer transition-all">
+                  <p className="text-lg font-medium">Tasks for Review</p>
+                  <h2 className="text-4xl font-bold mt-1">{stats.tasksForReview}</h2>
+                  <p className="opacity-80 text-sm mt-1">Awaiting your approval</p>
                 </div>
 
               </div>
@@ -180,6 +192,26 @@ function Dashboard() {
                   )}
                 </div>
 
+              </div>
+
+              {/* ---- Quality Check / For Review Block ---- */}
+              <div className="bg-white rounded-2xl border shadow p-6 hover:shadow-lg transition">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="font-semibold text-lg">🔍 For Review</h2>
+                  <button className="px-3 py-1 rounded-md text-blue-600 text-sm hover:bg-blue-50">
+                    View All
+                  </button>
+                </div>
+                {reviewTasks.length > 0 ? (
+                  <div className="space-y-2">
+                    {reviewTasks.map((task) => (
+                      <div key={task.id} className="flex justify-between items-center p-2 rounded-lg hover:bg-gray-50">
+                        <div className="font-medium text-sm">{task.name} (from: {task.assignee_name})</div>
+                        <button className="px-3 py-1 text-sm font-semibold rounded-md bg-blue-500 text-white hover:bg-blue-600">Review</button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (<div className="text-gray-400 text-sm">No tasks are currently waiting for review.</div>)}
               </div>
             </>
           )}

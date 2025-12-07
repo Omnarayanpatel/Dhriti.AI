@@ -63,3 +63,4 @@ Thumbs.db
 *.swp
 Dhriti_ai-backend/app/uploads/
 Dhriti_ai-backend/client_build/
+Dhriti_ai-backend/app/import_files/
