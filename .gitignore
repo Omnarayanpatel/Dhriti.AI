@@ -1,13 +1,16 @@
 # =========================
 # Node / React (Frontend)
 # =========================
-node_modules/
-dist/
-build/
+node_modules
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+coverage/
+
+# Build artifacts
+dist/
+build/
 
 # Vite local cache
 .vite/
@@ -21,6 +24,9 @@ __pycache__/
 *.pyd
 *.sqlite3
 *.db
+.pytest_cache/
+htmlcov/
+*.egg-info/
 
 # Virtual environment
 .venv/
@@ -32,7 +38,8 @@ venv/
 # =========================
 # Database volume
 postgres_data/
-# Docker logs
+# Docker logs (and other logs)
+# This is a broad rule, be careful if you need to commit any .log files
 *.log
 
 # =========================
@@ -40,6 +47,7 @@ postgres_data/
 # =========================
 .env
 .env.*
+!.env.example
 *.secret
 
 # =========================
@@ -52,7 +60,11 @@ postgres_data/
 # Windows
 Thumbs.db
 # VSCode
-.vscode/
+# Ignore user-specific VSCode files, but allow sharing settings.
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/extensions.json
 # JetBrains IDEs
 .idea/
 
@@ -60,7 +72,9 @@ Thumbs.db
 # Other
 # =========================
 *.bak
-*.swp
-Dhriti_ai-backend/app/uploads/
-Dhriti_ai-backend/client_build/
-Dhriti_ai-backend/app/import_files/
+*.swp # Swap files
+
+# Application-specific generated files
+Dhriti_ai-backend/app/uploads/ # User uploads
+Dhriti_ai-backend/client_build/ # Frontend build for backend
+Dhriti_ai-backend/app/import_files/ # Imported data files
