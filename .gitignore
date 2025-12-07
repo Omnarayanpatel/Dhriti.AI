@@ -75,6 +75,7 @@ Thumbs.db
 *.swp # Swap files
 
 # Application-specific generated files
-Dhriti_ai-backend/app/uploads/ # User uploads
-Dhriti_ai-backend/client_build/ # Frontend build for backend
-Dhriti_ai-backend/app/import_files/ # Imported data files
+Dhriti_ai-backend/app/uploads/ 
+Dhriti_ai-backend/client_build/ 
+Dhriti_ai-backend/app/import_files/ 
+Dhriti_ai-backend/client_uploads/
