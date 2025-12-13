@@ -18,6 +18,12 @@ import ImageAnnotator from './pages/ImageAnnotation.jsx';
 import ClientUploads from './pages/ClientUploads.jsx';
 import TextAnnotator from './pages/TextAnnotation.jsx';
 import VideoAnnotation from './pages/VideoAnnotation.jsx';
+import QCReviewPage from './pages/QCReviewPage.jsx';
+// Import the new QC detail pages
+import QCImageReview from './pages/QCImageReview.jsx';
+import QCTextReview from './pages/QCTextReview.jsx';
+import QCAudioReview from './pages/QCAudioReview.jsx';
+import QCVideoReview from './pages/QCVideoReview.jsx';
 
 function App() {
   return (
@@ -153,6 +159,48 @@ function App() {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/qc/project/:projectId"
+        element={
+          <ProtectedRoute allowedRoles={['admin', 'reviewer']}>
+            <QCReviewPage />
+          </ProtectedRoute>
+        }
+      />
+      {/* New QC Detail Routes */}
+      <Route
+        path="/qc/image-review/:taskId"
+        element={
+          <ProtectedRoute allowedRoles={['admin', 'reviewer']}>
+            <QCImageReview />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/qc/text-review/:taskId"
+        element={
+          <ProtectedRoute allowedRoles={['admin', 'reviewer']}>
+            <QCTextReview />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/qc/audio-review/:taskId"
+        element={
+          <ProtectedRoute allowedRoles={['admin', 'reviewer']}>
+            <QCAudioReview />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/qc/video-review/:taskId"
+        element={
+          <ProtectedRoute allowedRoles={['admin', 'reviewer']}>
+            <QCVideoReview />
+          </ProtectedRoute>
+        }
+      />
+      
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

@@ -14,6 +14,7 @@ from app.models.task_annotation import TaskAnnotation
 from app.models.project_template import ProjectTemplate
 from app.models.user import User
 from app.routes.protected import get_current_user
+from app.schemas.enums import AnnotationStatus, ProjectStatus, TaskStatus
 from app.schemas.token import TokenData
 from app.schemas.tasks import AnnotationResponse
 
@@ -212,8 +213,8 @@ def get_next_text_project_task(
         .join(Project, Project.id == ProjectTask.project_id)
         .filter(
             ProjectTask.project_id == project_id,
-            ProjectTask.status == "NEW",
-            Project.status.in_(["Active", "Running","active"]),
+            ProjectTask.status == TaskStatus.NEW,
+            Project.status.in_([ProjectStatus.ACTIVE, ProjectStatus.RUNNING]),
             ~ProjectTask.task_id.in_(completed_task_ids_query)
         )
         .order_by(ProjectTask.created_at)
@@ -362,12 +363,12 @@ def submit_text_task_annotations(
         project_id=payload.project_id,
         template_id=template_id_to_use,
         annotations=combined_annotations,
-        status="completed",
+        status=AnnotationStatus.COMPLETED,
     )
     db.add(annotation)
 
     # Update task status and project statistics in a transaction
-    task.status = "submitted"
+    task.status = TaskStatus.SUBMITTED # Task is now ready for QC (as per enum definition)
     try:
         project = db.query(Project).filter(Project.id == payload.project_id).with_for_update().one()
         project.total_tasks_completed = (project.total_tasks_completed or 0) + 1

@@ -32,12 +32,10 @@ def get_dashboard_summary(
     # 'active_projects' will be the total count of all projects.
     total_projects_count = db.query(func.count(Project.id)).scalar() or 0
 
-    # An "ended" project is one where all its tasks are completed.
-    # We also check that tasks were added to avoid counting empty projects.
-    ended_projects_count = db.query(func.count(Project.id)).filter(
-        Project.total_tasks_added > 0,
-        Project.total_tasks_added == Project.total_tasks_completed
-    ).scalar() or 0
+    # An "ended" project is one with a 'completed' status.
+    ended_projects_count = (
+        db.query(func.count(Project.id)).filter(Project.status == "completed").scalar() or 0
+    )
 
     # A project is "running" if it has been assigned to at least one user and is not completed.
     running_projects_count = db.query(func.count(Project.id.distinct())).join(

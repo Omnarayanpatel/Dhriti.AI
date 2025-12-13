@@ -18,6 +18,7 @@ from app.models.project import Project
 from app.models.project_import_file import ProjectImportFile
 from app.models.project_task import ProjectTask
 from app.routes.protected import get_current_user
+from app.schemas.enums import TaskStatus
 from app.schemas.task_ingest import (
     ConfirmRequest,
     ConfirmResponse,
@@ -429,7 +430,7 @@ def confirm_import(
                     task_id=preview_row.task_id,
                     task_name=preview_row.task_name or "Untitled",
                     file_name=preview_row.file_name or f"row_{preview_row.row - 1}.dat",
-                    status="NEW",
+                    status=TaskStatus.NEW,
                     payload=preview_row.payload,
                 )
             )

@@ -18,6 +18,7 @@ from app.models.project_task import ProjectTask
 from app.models.project import Project, ProjectAssignment, TaskReview
 from app.models.user import User
 from app.routes.protected import get_current_user
+from app.schemas.enums import AnnotationStatus, ProjectStatus, TaskStatus
 from app.schemas.tasks import (
     AssignedProject,
     AnnotationCreate,
@@ -148,7 +149,7 @@ def get_tasks_dashboard(
             pending_tasks=assignment.pending_tasks or 0, # This was missing a comma
             task_type=project.task_type,
             data_category=project.data_category,
-            status=assignment.status or project.status or "Active",
+            status=assignment.status or project.status or ProjectStatus.ACTIVE,
             template_id=template_id,
         )
         assignments.append(assigned_project)
@@ -231,14 +232,14 @@ def submit_task_annotations(
         project_id=payload.project_id, # This was missing a comma
         template_id=payload.template_id,
         annotations=payload.annotations,
-        status="completed",
+        status=AnnotationStatus.COMPLETED,
     )
     db.add(annotation)
 
     # Update the ProjectTask status to 'submitted'
     task = db.query(ProjectTask).filter(ProjectTask.task_id == payload.task_id).first()
     if task:
-        task.status = "submitted"
+        task.status = TaskStatus.SUBMITTED
 
     # Increment the total_tasks_completed count on the project
     project = db.query(Project).filter(Project.id == payload.project_id).first()
@@ -281,7 +282,7 @@ def submit_image_task_annotations(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
     # Check if the task has already been submitted
-    if task.status == "submitted":
+    if task.status == TaskStatus.SUBMITTED:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This task has already been submitted.")
 
     # Find the latest template for this task's project
@@ -302,12 +303,12 @@ def submit_image_task_annotations(
         project_id=task.project_id,
         template_id=template.id,
         annotations=payload,
-        status="completed",
+        status=AnnotationStatus.COMPLETED,
     )
     db.add(annotation)
 
     # Update task status and project statistics in a transaction
-    task.status = "submitted"
+    task.status = TaskStatus.SUBMITTED # Task is now ready for QC (as per enum definition)
     try:
         project = db.query(Project).filter(Project.id == task.project_id).with_for_update().one()
         project.total_tasks_completed = (project.total_tasks_completed or 0) + 1
@@ -566,25 +567,46 @@ def get_project_tasks(
 @router.get("/admin/projects/{project_id}/review-tasks", status_code=status.HTTP_200_OK)
 def get_project_review_tasks(
     project_id: int,
-    _: TokenData = Depends(require_admin),
+    annotator_id: Optional[int] = None,
+    data_category_filter: Optional[str] = None,
+    status_filter: Optional[TaskStatus] = None,
+    page: int = 1,
+    limit: int = 20,
+    current_user: TokenData = Depends(require_admin), # Use current_user for role check
     db: Session = Depends(database.get_db),
 ):
     """
     An endpoint to get all completed tasks for a given project that are ready for review.
     It joins the task with the annotation and the user who submitted it.
     """
-    completed_tasks_with_annotator = (
-        db.query(ProjectTask, TaskAnnotation, User)
+    # Base query
+    query = (
+        db.query(ProjectTask, TaskAnnotation, User, Project.data_category, Project.project_type)
         .join(TaskAnnotation, ProjectTask.task_id == TaskAnnotation.task_id)
         .join(User, TaskAnnotation.user_id == User.id)
+        .join(Project, ProjectTask.project_id == Project.id)
         .filter(ProjectTask.project_id == project_id)
-        .filter(ProjectTask.status == "submitted")
-        .order_by(TaskAnnotation.submitted_at.desc())
-        .all()
     )
 
+    # Apply filters
+    if annotator_id:
+        query = query.filter(TaskAnnotation.user_id == annotator_id)
+    if data_category_filter:
+        query = query.filter(Project.data_category == data_category_filter)
+    if status_filter:
+        query = query.filter(ProjectTask.status == status_filter)
+    else:
+        # Default filter for QC review page: tasks that are submitted, rejected, or in rework
+        query = query.filter(ProjectTask.status.in_([TaskStatus.SUBMITTED, TaskStatus.QC_REJECTED, TaskStatus.REWORK]))
+
+    # Get total count before applying pagination
+    total_count = query.count()
+
+    # Apply pagination and ordering
+    tasks_data = query.order_by(TaskAnnotation.submitted_at.desc()).offset((page - 1) * limit).limit(limit).all()
+
     results = []
-    for task, annotation, user in completed_tasks_with_annotator:
+    for task, annotation, user, data_category, project_type in tasks_data:
         task_dict = task.__dict__
         # The __dict__ from SQLAlchemy might contain internal state like _sa_instance_state
         # which we don't want in the response. A cleaner way is to build the dict.
@@ -593,11 +615,91 @@ def get_project_review_tasks(
             "task_id": task.task_id,
             "task_name": task.task_name,
             "file_name": task.file_name,
+            "annotator_id": user.id,
             "annotator_email": user.email,
             "submitted_at": annotation.submitted_at,
+            "data_category": data_category,
+            "project_type": project_type, # Added project_type for potential future use
+            "status": task.status, # Added task status
+            "payload": task.payload, # Input data
+            "annotations": annotation.annotations, # Output data
         })
 
-    return results
+    return {"tasks": results, "total_count": total_count}
+
+@router.get("/admin/users", response_model=List[UserSummary])
+def list_users(
+    _: TokenData = Depends(require_admin),
+    db: Session = Depends(database.get_db),
+):
+    users = (
+        db.query(User)
+        .options(selectinload(User.profile))
+        .order_by(User.email.asc())
+        .all()
+    )
+    summaries = []
+    for user in users:
+        profile = user.profile
+        summaries.append(
+            UserSummary(
+                id=user.id,
+                email=user.email,
+                # The 'role' field is a string, not an enum. Access it directly.
+                role=user.role,
+                name=profile.name if profile else None,
+                phone=profile.phone if profile else None,
+                # Correctly and safely get the string value of the status enum
+                status=profile.status.value if profile and profile.status else None,
+            )
+        )   
+    return summaries
+
+
+@router.get("/admin/{task_id}", status_code=status.HTTP_200_OK)
+def get_task_for_review(
+    task_id: UUID,
+    current_user: TokenData = Depends(require_admin),
+    db: Session = Depends(database.get_db),
+):
+    """
+    Fetches a single task by its UUID, including its annotation and user details, for QC review.
+    This is used by the QC detail pages when loaded directly.
+    """
+    # Query for the task and join with related tables to get all necessary info
+    task_data = (
+        db.query(ProjectTask, TaskAnnotation, User, Project.data_category, Project.project_type, Project.id.label("project_id"))
+        .join(TaskAnnotation, ProjectTask.task_id == TaskAnnotation.task_id)
+        .join(User, TaskAnnotation.user_id == User.id)
+        .join(Project, ProjectTask.project_id == Project.id)
+        .filter(ProjectTask.id == task_id)
+        .order_by(TaskAnnotation.submitted_at.desc()) # Get the latest annotation
+        .first()
+    )
+
+    if not task_data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task with associated annotation not found.")
+
+    task, annotation, user, data_category, project_type, project_id = task_data
+
+    # Construct the response dictionary, similar to the list endpoint
+    result = {
+        "id": task.id,
+        "task_id": task.task_id,
+        "task_name": task.task_name,
+        "file_name": task.file_name,
+        "project_id": project_id,
+        "annotator_id": user.id,
+        "annotator_email": user.email,
+        "submitted_at": annotation.submitted_at,
+        "data_category": data_category,
+        "project_type": project_type,
+        "status": task.status,
+        "payload": task.payload,
+        "annotations": annotation.annotations,
+    }
+
+    return result
 
 @router.post(
     "/projects/{project_id}/next-task",
@@ -647,8 +749,8 @@ def get_next_project_task(
         .join(Project, Project.id == ProjectTask.project_id)
         .filter(
             ProjectTask.project_id == project_id,
-            ProjectTask.status == "NEW",
-            Project.status.in_(["Active", "Running","active"]),
+            ProjectTask.status == TaskStatus.NEW,
+            Project.status.in_([ProjectStatus.ACTIVE, ProjectStatus.RUNNING]),
             ~ProjectTask.task_id.in_(completed_task_ids_query)
         )
         .order_by(ProjectTask.created_at)  # FIFO assignment
@@ -661,8 +763,8 @@ def get_next_project_task(
         if project:
             total_added = project.total_tasks_added or 0
             total_completed = project.total_tasks_completed or 0
-            if total_added > 0 and total_added == total_completed and project.status != "Completed":
-                project.status = "Completed"
+            if total_added > 0 and total_added == total_completed and project.status != ProjectStatus.COMPLETED:
+                project.status = ProjectStatus.COMPLETED
                 db.commit()
 
         raise HTTPException(
@@ -672,31 +774,6 @@ def get_next_project_task(
 
     return available_task
 
-@router.get("/admin/users", response_model=List[UserSummary])
-def list_users(
-    _: TokenData = Depends(require_admin),
-    db: Session = Depends(database.get_db),
-):
-    users = (
-        db.query(User)
-        .options(selectinload(User.profile))
-        .order_by(User.email.asc())
-        .all()
-    )
-    summaries = []
-    for user in users:
-        profile = user.profile
-        summaries.append(
-            UserSummary(
-                id=user.id,
-                email=user.email,
-                role=user.role,
-                name=profile.name if profile else None,
-                phone=profile.phone if profile else None,
-                status=profile.status if profile else None,
-            )
-        )
-    return summaries
 
 
 @router.post("/admin/assignments", response_model=ProjectAssignmentResponse)
@@ -714,8 +791,8 @@ def assign_project_to_user(
         raise HTTPException(status_code=404, detail="Project not found")
 
     # If the project is currently 'Active', change its status to 'Running'
-    if project.status == "Active"or"active":
-        project.status = "Running"
+    if project.status == ProjectStatus.ACTIVE:
+        project.status = ProjectStatus.RUNNING
 
     assignment = (
         db.query(ProjectAssignment)
@@ -777,8 +854,8 @@ def unassign_project_from_user(
 
     if remaining_assignments == 0:
         project = db.query(Project).filter(Project.id == payload.project_id).first()
-        if project and project.status == "Running":
-            project.status = "Active"
+        if project and project.status == ProjectStatus.RUNNING:
+            project.status = ProjectStatus.ACTIVE
             db.commit()
 
 @router.post(

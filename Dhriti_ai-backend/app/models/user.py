@@ -1,4 +1,5 @@
-from sqlalchemy import Column, ForeignKey, Integer, String
+import enum
+from sqlalchemy import Column, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -29,6 +30,11 @@ class User(Base):
     )
 
 
+class UserStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+    SUSPENDED = "SUSPENDED"
+
 class UserProfile(Base):
     __tablename__ = "user_profiles"
 
@@ -36,6 +42,11 @@ class UserProfile(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
     name = Column(String, nullable=False)
     phone = Column(String, nullable=True)
-    status = Column(String, default="Active")
+    status = Column(
+        Enum(
+            UserStatus,
+            native_enum=False,
+        ), default=UserStatus.ACTIVE, nullable=False
+    )
 
     user = relationship("User", back_populates="profile")

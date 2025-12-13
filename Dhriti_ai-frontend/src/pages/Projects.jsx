@@ -55,7 +55,7 @@ function Projects() {
     }
 
     loadProjects()
-  }, [])
+  }, [navigate])
 
   const openAssignModal = async project => {
     setSelectedProject(project)
@@ -220,6 +220,13 @@ function Projects() {
                             className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-slate-200 disabled:hover:text-slate-600"
                           >
                             Assign
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/qc/project/${project.id}`)}
+                            className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 transition hover:border-amber-500 hover:bg-amber-100"
+                          >
+                            Review
                           </button>
                         </div>
                       </td>

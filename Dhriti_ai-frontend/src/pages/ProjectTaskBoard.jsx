@@ -285,11 +285,11 @@ export default function ProjectTaskBoard() {
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-slate-700">
                       {reviewLoading ? (
-                        <tr><td colSpan="4" className="p-6 text-center text-slate-500">Loading tasks for review…</td></tr>
+                        <tr><td colSpan="5" className="p-6 text-center text-slate-500">Loading tasks for review…</td></tr>
                       ) : reviewError ? (
-                        <tr><td colSpan="4" className="p-6 text-center text-red-600">{reviewError}</td></tr>
+                        <tr><td colSpan="5" className="p-6 text-center text-red-600">{reviewError}</td></tr>
                       ) : reviewTasks.length === 0 ? (
-                        <tr><td colSpan="4" className="p-6 text-center text-slate-500">No tasks are ready for review.</td></tr>
+                        <tr><td colSpan="5" className="p-6 text-center text-slate-500">No tasks are ready for review.</td></tr>
                       ) : (
                         reviewTasks.map(task => (
                           <tr key={task.task_id} className="hover:bg-slate-50">

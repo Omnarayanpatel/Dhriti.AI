@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app import database
-from app.models.user import User, UserProfile
+from app.models.user import User, UserProfile, UserStatus
 from app.schemas.user import LoginRequest, UserCreate
 from app.utils import audit, security
 
@@ -22,7 +22,7 @@ def register_user(request: UserCreate, db: Session = Depends(database.get_db)):
     profile = UserProfile(
         name=request.name,
         phone=request.phone,
-        status=request.status or "Active",
+        status=UserStatus(request.status) if request.status else UserStatus.ACTIVE,
     )
     new_user.profile = profile
     db.add(new_user)

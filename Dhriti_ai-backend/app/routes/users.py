@@ -27,7 +27,7 @@ def serialize_user(user: User) -> UserResponse:
         role=user.role,
         name=profile.name if profile else None,
         phone=profile.phone if profile else None,
-        status=profile.status if profile else None,
+        status=profile.status.value if profile and profile.status else None,
     )
 
 
@@ -96,7 +96,7 @@ def update_user(
         profile = UserProfile(
             name=payload.name or user.email,
             phone=payload.phone,
-            status=payload.status or "Active",
+            status=UserStatus(payload.status) if payload.status else UserStatus.ACTIVE,
         )
         user.profile = profile
     elif profile:
@@ -105,7 +105,7 @@ def update_user(
         if payload.phone is not None:
             profile.phone = payload.phone
         if payload.status is not None:
-            profile.status = payload.status
+            profile.status = UserStatus(payload.status)
 
     db.commit()
     db.refresh(user)
