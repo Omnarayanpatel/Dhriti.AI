@@ -390,26 +390,39 @@ def confirm_import(
     inserted = 0
     if pending:
         # Create the import record FIRST to get a batch_id and store file content
-        original_filename = "unknown_file.json"
+        original_filename = "unknown_file"
         stored_filename = None
         if payload.excel_upload_id:
             meta_path = _metadata_path(payload.excel_upload_id)
             if meta_path.exists():
                 try:
                     with meta_path.open("r", encoding="utf-8") as handle:
-                        metadata = json.load(handle)
-                    original_filename = metadata.get("source", original_filename)
+                        metadata = json.load(handle) or {}
 
-                    # Move the original file to the permanent import_files directory
-                    temp_json_path = UPLOAD_ROOT / f"{payload.excel_upload_id}.json"
-                    if temp_json_path.exists():
-                        # Create a unique filename to avoid collisions
-                        stored_filename = f"{uuid4().hex}_{original_filename}"
-                        permanent_path = IMPORT_FILES_ROOT / stored_filename
+                    original_filename = metadata.get("source", original_filename)
+                    is_from_client_upload = metadata.get("from_client_upload", False)
+
+                    stored_filename = f"{uuid4().hex}_{original_filename}"
+                    permanent_path = IMPORT_FILES_ROOT / stored_filename
+
+                    if is_from_client_upload:
+                        # Excel / CSV from client_uploads
+                        client_file_path = UPLOAD_ROOT.parents[1] / "client_uploads" / original_filename
+                        if not client_file_path.exists():
+                            raise FileNotFoundError("Client upload source file missing")
+                        shutil.copy(client_file_path, permanent_path)
+                    else:
+                        # JSON upload flow
+                        temp_json_path = UPLOAD_ROOT / f"{payload.excel_upload_id}.json"
+                        if not temp_json_path.exists():
+                            raise FileNotFoundError("Temporary JSON file missing")
                         shutil.move(temp_json_path, permanent_path)
 
-                except Exception:
-                    pass
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Failed to store import file: {e}",
+                    )
 
         if not stored_filename:
             raise HTTPException(status_code=500, detail="Could not process and store the import file.")
