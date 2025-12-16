@@ -27,7 +27,7 @@ run_startup_migrations()
 
 @app.get("/")
 def home():
-    return {"msg": "Accun AI Backend Running ✅"}
+    return {"msg": "DHRITII AI Backend Running ✅"}
 
 
 app.include_router(auth.router)
