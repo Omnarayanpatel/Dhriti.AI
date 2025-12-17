@@ -9,16 +9,15 @@ import {
   RiSkipRightLine,
 } from "react-icons/ri";
 
-
-/**
- * Full merged VideoAnnotationTool component with:
- * - bbox / polygon / polyline / segmentation
- * - CVAT-like forward propagation (auto copy bbox to all future frames with same id)
- * - move/resize propagate to future frames (if same id exists)
- * - undo/redo, labels, import/export
- *
- * Replace your existing component with this file.
- */
+// --- Constants for the new modal ---
+const DEFAULT_COLOR_OPTIONS = [
+  { id: 'green', hex: '#16a34a' },
+  { id: 'blue', hex: '#2563eb' },
+  { id: 'red', hex: '#dc2626' },
+  { id: 'purple', hex: '#9333ea' },
+  { id: 'orange', hex: '#f97316' },
+  { id: 'yellow', hex: '#eab308' },
+];
 
 export default function VideoAnnotationTool() {
   const videoRef = useRef(null);
@@ -86,6 +85,24 @@ export default function VideoAnnotationTool() {
   // menu
   const [openMenu, setOpenMenu] = useState(false);
 
+  // -------- state for new mapping modal --------
+  const [showVideoMappingModal, setShowVideoMappingModal] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [projectColumns, setProjectColumns] = useState([]);
+  const [mappingProjects, setMappingProjects] = useState([]); // Will be fetched from API
+
+  const [videoMapping, setVideoMapping] = useState({
+    video: ""
+  });
+
+  const [labelConfigs, setLabelConfigs] = useState([
+    { text: "", color: DEFAULT_COLOR_OPTIONS[0] }
+  ]);
+
+  const [mappingLoading, setMappingLoading] = useState(false);
+  const [mappingError, setMappingError] = useState("");
+
+
   // ensure drawMode matches tool
   useEffect(() => {
     setDrawMode(currentTool !== "select");
@@ -100,6 +117,32 @@ export default function VideoAnnotationTool() {
       console.warn("Unable to save to localStorage", e);
     }
   }, [annotationsMap, labels]);
+
+  // --- Effects for new mapping modal ---
+
+  // Fetch projects when modal is opened
+  useEffect(() => {
+    if (showVideoMappingModal) {
+      // In a real app, you would fetch this from your backend:
+      // fetch('/api/projects').then(...)
+      setMappingProjects([
+        { id: 'proj_1', name: 'Project Alpha - City Traffic' },
+        { id: 'proj_2', name: 'Project Beta - Warehouse Stock' },
+      ]);
+    }
+  }, [showVideoMappingModal]);
+
+  // Fetch project columns when a project is selected
+  useEffect(() => {
+    if (selectedProjectId) {
+      // In a real app, fetch columns for the selected project
+      setProjectColumns(['video_url', 'thumbnail_url', 'item_id', 'source']);
+    } else {
+      setProjectColumns([]);
+    }
+  }, [selectedProjectId]);
+
+
 
   // helper: current frame number
   const getCurrentFrame = () => {
@@ -962,13 +1005,31 @@ export default function VideoAnnotationTool() {
     setAnnotationsMap(next);
   };
 
+  // --- Handlers for new mapping modal ---
+  const handleCreateVideoTask = () => {
+    setMappingLoading(true);
+    setMappingError("");
+    console.log("Creating video task with:", {
+      projectId: selectedProjectId,
+      videoMapping,
+      labels: labelConfigs,
+    });
+    // Placeholder for API call
+    setTimeout(() => {
+      // On success:
+      setMappingLoading(false);
+      setShowVideoMappingModal(false);
+      // You might want to load the created task here
+    }, 1000);
+  };
+
   // current list for sidebar
   const currentList = annotationsMap[frameNumber] || [];
 
   // render
   return (
     <div className="min-h-screen bg-gradient-to-br from-white via-[#e6f9ef] to-[#dff7ee] text-gray-800">
-      <div className="max-w-7xl mx-auto py-8 px-6">
+      <div className="max-w-1xl mx-auto py-8 px-6">
         <div className="flex gap-8 justify-between items-start">
           {/* Sidebar */}
           <aside className="w-1/5 backdrop-blur-sm bg-white/60 dark:bg-black/30 rounded-2xl p-5 shadow-lg border border-white/30">
@@ -976,8 +1037,8 @@ export default function VideoAnnotationTool() {
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-[#10b981] to-[#16a34a] flex items-center justify-center text-white font-extrabold shadow">DA</div>
                 <div>
-                  <h3 className="text-lg font-semibold leading-tight text-[#064e3b]">Dhritii.Ai</h3>
-                  <div className="text-xs text-gray-600">Video Annotation</div>
+                  <h3 className="text-lg font-semibold leading-tight text-[#064e3b]">Video Annotation</h3>
+                  <div className="text-xs text-gray-600">Toolbar</div>
                 </div>
               </div>
 
@@ -985,6 +1046,7 @@ export default function VideoAnnotationTool() {
                 <button onClick={() => setOpenMenu(!openMenu)} aria-label="menu" className="p-2 rounded-md hover:bg-gray-100 transition"><BsThreeDotsVertical size={18} /></button>
                 {openMenu && (
                   <div className="absolute right-0 mt-2 w-44 bg-white/95 rounded-lg shadow-md border">
+                    <button onClick={() => { setShowVideoMappingModal(true); setOpenMenu(false); }} className="w-full text-left px-4 py-2 hover:bg-gray-50">Create Task</button>
                     <button onClick={() => { document.getElementById("videoFile").click(); setOpenMenu(false); }} className="w-full text-left px-4 py-2 hover:bg-gray-50">Choose File</button>
                     <button onClick={() => { document.getElementById("importFile").click(); setOpenMenu(false); }} className="w-full text-left px-4 py-2 hover:bg-gray-50">Import JSON</button>
                     <button onClick={() => { exportData(); setOpenMenu(false); }} className="w-full text-left px-4 py-2 hover:bg-gray-50">Export</button>
@@ -1088,23 +1150,16 @@ export default function VideoAnnotationTool() {
           </aside>
 
           {/* Main editor */}
-          <main className="flex-1">
+          <main className="flex-2">
             <div className="bg-white rounded-2xl p-5 shadow-xl border">
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-8">
                 <div>
                   <h1 className="text-2xl font-extrabold text-[#0f5132]">Video Annotator</h1>
                   <div className="text-sm text-gray-500">Annotate frames, propagate annotations, and export JSON</div>
                 </div>
 
-                {/* <button
-                  onClick={downloadAnnotatedVideo}
-                  className="px-3 py-2 bg-blue-600 text-white rounded"
-                >
-                  Download Annotated Video
-                </button> */}
-
-
                 <div className="flex items-center gap-4">
+                  
                   <div className="text-sm text-gray-600">Active label:</div>
                   <div className="flex items-center gap-2">
                     <div className="w-4 h-4 rounded" style={{ backgroundColor: (labels.find(l => l.name === currentLabel) || labels[0]).color }}></div>
@@ -1149,6 +1204,178 @@ export default function VideoAnnotationTool() {
               Notes: Use Select to move/resize rectangles. Use BBox, Polygon, Polyline, or Segmentation to draw. For polygon/polyline: click points and double-click to finish. Everything autosaves to browser. Use T (10 frames) or Y (1 frame) to propagate selected annotation. Use "Propagate→End" to copy selected annotation to all future frames.
             </div>
           </main>
+
+          {/* Video Mapping Modal */}
+          {showVideoMappingModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div
+                className="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl flex flex-col"
+                style={{ maxHeight: "90vh" }}
+              >
+                {/* Header */}
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-semibold">Create Video Annotation Task</h3>
+                  <button
+                    onClick={() => setShowVideoMappingModal(false)}
+                    className="text-gray-500 hover:text-gray-800 text-2xl"
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                {/* Error */}
+                {mappingError && (
+                  <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+                    {mappingError}
+                  </div>
+                )}
+
+                {/* Body */}
+                <div className="space-y-4 overflow-y-auto pr-2">
+
+                  {/* 1️⃣ Select Project */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Select Project
+                    </label>
+                    <select
+                      value={selectedProjectId}
+                      onChange={(e) => setSelectedProjectId(e.target.value)}
+                      className="w-full border rounded px-3 py-2 text-sm"
+                      disabled={mappingLoading}
+                    >
+                      <option value="">-- Choose a project --</option>
+                      {mappingProjects.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {selectedProjectId && (
+                    <>
+                      {/* 2️⃣ Video Source Config */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Map Video URL Column
+                        </label>
+                        <select
+                          value={videoMapping.video}
+                          onChange={(e) =>
+                            setVideoMapping(prev => ({ ...prev, video: e.target.value }))
+                          }
+                          className="w-full border rounded px-3 py-2 text-sm"
+                          disabled={mappingLoading || projectColumns.length === 0}
+                        >
+                          <option value="">-- Select video URL column --</option>
+                          {projectColumns.map(col => (
+                            <option key={col} value={col}>{col}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <hr className="my-4" />
+
+                      {/* 3️⃣ Annotation Settings */}
+                      <div className="text-md font-semibold mb-3">
+                        Annotation Settings
+                      </div>
+
+                      <div className="space-y-3">
+                        <label className="block text-sm font-medium text-gray-700">
+                          Labels and Colors
+                        </label>
+
+                        <div className="space-y-2 rounded-md border p-3 max-h-60 overflow-y-auto">
+                          {labelConfigs.map((config, index) => (
+                            <div key={index} className="flex items-center gap-2">
+                              <div
+                                className="w-6 h-6 rounded border"
+                                style={{ backgroundColor: config.color.hex }}
+                              />
+
+                              <input
+                                type="text"
+                                value={config.text}
+                                placeholder="Label name"
+                                onChange={(e) => {
+                                  const next = [...labelConfigs];
+                                  next[index].text = e.target.value;
+                                  setLabelConfigs(next);
+                                }}
+                                className="flex-grow border rounded px-2 py-1 text-sm"
+                              />
+
+                              <select
+                                value={config.color.id}
+                                onChange={(e) => {
+                                  const newColor = DEFAULT_COLOR_OPTIONS.find(
+                                    c => c.id === e.target.value
+                                  );
+                                  const next = [...labelConfigs];
+                                  next[index].color = newColor;
+                                  setLabelConfigs(next);
+                                }}
+                                className="border rounded p-1 text-sm"
+                              >
+                                {DEFAULT_COLOR_OPTIONS.map(c => (
+                                  <option key={c.id} value={c.id}>{c.id}</option>
+                                ))}
+                              </select>
+
+                              <button
+                                onClick={() =>
+                                  setLabelConfigs(labelConfigs.filter((_, i) => i !== index))
+                                }
+                                className="text-red-500 hover:text-red-700 text-lg"
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+
+                        <button
+                          onClick={() =>
+                            setLabelConfigs([
+                              ...labelConfigs,
+                              { text: "", color: DEFAULT_COLOR_OPTIONS[0] }
+                            ])
+                          }
+                          className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+                        >
+                          + Add Label
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="mt-6 flex justify-end gap-3">
+                  <button
+                    onClick={() => setShowVideoMappingModal(false)}
+                    className="px-4 py-2 border rounded text-sm"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    onClick={handleCreateVideoTask}
+                    disabled={
+                      mappingLoading ||
+                      !selectedProjectId ||
+                      !videoMapping.video ||
+                      labelConfigs.length === 0 ||
+                      labelConfigs.some(l => !l.text)
+                    }
+                    className="px-4 py-2 bg-indigo-600 text-white rounded text-sm disabled:bg-indigo-300"
+                  >
+                    {mappingLoading ? "Creating..." : "Create Task"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
