@@ -1,81 +1,109 @@
-# =========================
-# Node / React (Frontend)
-# =========================
-node_modules
+# ======================================================
+# Node / React / Vite (Frontend)
+# ======================================================
+node_modules/
+**/node_modules/
+
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
 coverage/
+.eslintcache
 
 # Build artifacts
 dist/
 build/
 
-# Vite local cache
+# Vite cache
 .vite/
 
-# =========================
+# ======================================================
 # Python / FastAPI (Backend)
-# =========================
+# ======================================================
 __pycache__/
+**/__pycache__/
+
 *.pyc
 *.pyo
 *.pyd
+
+# Databases / local files
 *.sqlite3
 *.db
+
+# Testing & coverage
 .pytest_cache/
 htmlcov/
-*.egg-info/
+*.coverage
+coverage.xml
 
-# Virtual environment
+# Type checkers / linters
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
 .venv/
 env/
 venv/
 
-# =========================
+# ======================================================
 # Docker
-# =========================
-# Database volume
+# ======================================================
 postgres_data/
-# Docker logs (and other logs)
-# This is a broad rule, be careful if you need to commit any .log files
+docker-compose.override.yml
 *.log
 
-# =========================
-# Environment / Config
-# =========================
+# ======================================================
+# Environment / Secrets
+# ======================================================
 .env
 .env.*
 !.env.example
-*.secret
 
-# =========================
-# OS / IDE Files
-# =========================
+*.secret
+*.pem
+*.key
+
+# ======================================================
+# OS / IDE / Editor files
+# ======================================================
 # macOS
 .DS_Store
+
 # Linux
 *~
+
 # Windows
 Thumbs.db
-# VSCode
-# Ignore user-specific VSCode files, but allow sharing settings.
+
+# VS Code (allow shared config only)
 .vscode/*
 !.vscode/settings.json
 !.vscode/launch.json
 !.vscode/extensions.json
+
 # JetBrains IDEs
 .idea/
 
-# =========================
-# Other
-# =========================
-*.bak
-*.swp # Swap files
-
-# Application-specific generated files
-Dhriti_ai-backend/app/uploads/ 
-Dhriti_ai-backend/client_build/ 
-Dhriti_ai-backend/app/import_files/ 
+# ======================================================
+# Application Runtime / Generated Data
+# ======================================================
+# Backend runtime data (NEVER commit)
+Dhriti_ai-backend/storage/
 Dhriti_ai-backend/client_uploads/
+Dhriti_ai-backend/app/import_files/
+Dhriti_ai-backend/app/uploads/
+Dhriti_ai-backend/client_build/
+
+# Keep folders but ignore contents (optional safety)
+!Dhriti_ai-backend/client_uploads/.gitkeep
+!Dhriti_ai-backend/storage/.gitkeep
+
+# ======================================================
+# Misc
+# ======================================================
+*.bak
+*.swp
+*.tmp
