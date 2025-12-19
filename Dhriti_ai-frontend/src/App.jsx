@@ -24,6 +24,8 @@ import QCImageReview from './pages/QCImageReview.jsx';
 import QCTextReview from './pages/QCTextReview.jsx';
 import QCAudioReview from './pages/QCAudioReview.jsx';
 import QCVideoReview from './pages/QCVideoReview.jsx';
+import ToolsOverview from './pages/ToolsOverview.jsx';
+import ProfilePage from './pages/ProfilePage.jsx';
 
 function App() {
   return (
@@ -200,6 +202,23 @@ function App() {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/tools"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <ToolsOverview />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/profile-selection"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <ProfilePage/>
+          </ProtectedRoute>
+        }
+      />
+      
       
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

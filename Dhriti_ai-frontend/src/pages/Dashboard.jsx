@@ -60,7 +60,7 @@ function Dashboard() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#F6F7F9] flex gap-0">
+    <div className="min-h-screen  bg-[#F6F7F9] flex gap-0">
       {/* Sidebar */}
       <Sidebar />
 
@@ -127,14 +127,7 @@ function Dashboard() {
 
               </div>
 
-              {/* ---- Project Analytics Block ---- */}
-              <div className="bg-white rounded-2xl border shadow p-6 hover:shadow-lg transition">
-                <h2 className="font-semibold text-lg mb-3">📊 Project Analytics</h2>
-                <div className="h-[140px] bg-gray-100 rounded-md flex items-center justify-center text-gray-400">
-                  Chart will be placed here
-                </div>
-              </div>
-
+      
               {/* ---- Team + Projects List ---- */}
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
 
