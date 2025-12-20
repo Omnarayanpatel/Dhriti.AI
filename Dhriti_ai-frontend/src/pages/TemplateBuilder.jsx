@@ -74,11 +74,6 @@ const PRESETS = {
   },
 };
 
-const DATA_MODES = Object.freeze({
-  BATCH: 'batch',
-  PROJECT: 'project',
-});
-
 const DEFAULT_SAMPLE_ROW = `{
   "task_id":"T-101",
   "task_name":"Label Vehicle",
@@ -208,10 +203,7 @@ function uid() {
 }
 
 function TemplateBuilderApp() {
-  const [dataMode, setDataMode] = useState(DATA_MODES.PROJECT);
-  const [batchSources, setBatchSources] = useState([]);
   const [projectSources, setProjectSources] = useState([]);
-  const [selectedBatchId, setSelectedBatchId] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [availableFields, setAvailableFields] = useState([]);
   const [sourceLoading, setSourceLoading] = useState(false);
@@ -261,55 +253,6 @@ function TemplateBuilderApp() {
   const historyRef = useRef([]);
   const redoStackRef = useRef([]);
 
-  const refreshBatchSources = useCallback(async () => {
-    const token = getToken();
-    if (!token) {
-      setSourceError('Session expired. Please log in again.');
-      setBatchSources([]);
-      setSelectedBatchId('');
-      setAvailableFields([]);
-      setSampleRow(DEFAULT_SAMPLE_ROW);
-      return;
-    }
-
-    setSourceLoading(true);
-    setSourceError('');
-
-    try {
-      const response = await fetch(`${API_BASE}/tasks/admin/template-sources`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      let payload = null;
-      try {
-        payload = await response.json();
-      } catch (error) {
-        payload = null;
-      }
-      if (!response.ok) {
-        const detail = payload?.detail || 'Failed to load template sources.';
-        throw new Error(detail);
-      }
-      const list = Array.isArray(payload) ? payload : [];
-      setBatchSources(list);
-      setSelectedBatchId(prev => {
-        if (prev && list.some(item => item.batch_id === prev)) {
-          return prev;
-        }
-        return list.length > 0 ? list[0].batch_id : '';
-      });
-      if (list.length === 0) {
-        setAvailableFields([]);
-        setSampleRow(DEFAULT_SAMPLE_ROW);
-      }
-    } catch (error) {
-      setSourceError(error instanceof Error ? error.message : 'Unable to load template sources.');
-    } finally {
-      setSourceLoading(false);
-    }
-  }, []);
-
   const refreshProjectSources = useCallback(async () => {
     const token = getToken();
     if (!token) {
@@ -325,7 +268,7 @@ function TemplateBuilderApp() {
     setSourceError('');
 
     try {
-      const response = await fetch(`${API_BASE}/tasks/admin/project-template-sources`, {
+      const response = await fetch(`${API_BASE}/tasks/template-builder/projects`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -338,7 +281,7 @@ function TemplateBuilderApp() {
       }
       if (!response.ok) {
         const detail = payload?.detail || 'Failed to load project template sources.';
-        throw new Error(detail);
+        throw new Error(typeof detail === 'object' ? JSON.stringify(detail) : detail);
       }
       const list = Array.isArray(payload) ? payload : [];
       setProjectSources(list);
@@ -360,15 +303,11 @@ function TemplateBuilderApp() {
   }, []);
 
   useEffect(() => {
-    if (dataMode === DATA_MODES.BATCH) {
-      refreshBatchSources();
-    } else {
-      refreshProjectSources();
-    }
-  }, [dataMode, refreshBatchSources, refreshProjectSources]);
+    refreshProjectSources();
+  }, [refreshProjectSources]);
 
   useEffect(() => {
-    const selection = dataMode === DATA_MODES.BATCH ? selectedBatchId : selectedProjectId;
+    const selection = selectedProjectId;
     if (!selection) {
       setAvailableFields([]);
       setSampleRow(DEFAULT_SAMPLE_ROW);
@@ -388,9 +327,7 @@ function TemplateBuilderApp() {
       setSourceError('');
       try {
         const endpoint =
-          dataMode === DATA_MODES.BATCH
-            ? `${API_BASE}/tasks/admin/template-sources/${selection}`
-            : `${API_BASE}/tasks/admin/project-template-sources/${selection}`;
+          `${API_BASE}/tasks/template-builder/projects/${selection}`;
         const response = await fetch(endpoint, {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -405,7 +342,7 @@ function TemplateBuilderApp() {
         }
         if (!response.ok) {
           const detail = payload?.detail || 'Failed to load template source.';
-          throw new Error(detail);
+          throw new Error(typeof detail === 'object' ? JSON.stringify(detail) : detail);
         }
         const schemaList = Array.isArray(payload?.schema) ? payload.schema : [];
         setAvailableFields(schemaList.map(item => item.key));
@@ -427,7 +364,7 @@ function TemplateBuilderApp() {
     fetchDetail();
 
     return () => controller.abort();
-  }, [dataMode, selectedBatchId, selectedProjectId]);
+  }, [selectedProjectId]);
 
   const snapshot = useCallback(
     () =>
@@ -553,7 +490,7 @@ function TemplateBuilderApp() {
 
   useEffect(() => {
     setSaveBanner(null);
-  }, [dataMode, selectedBatchId, selectedProjectId]);
+  }, [selectedProjectId]);
 
   useEffect(() => {
     const block = blocks.find(item => item.id === admComp);
@@ -834,11 +771,6 @@ function TemplateBuilderApp() {
     return Math.max(900, maxBottom + 800);
   }, [blocks]);
 
-  const activeBatch = useMemo(
-    () => batchSources.find(item => item.batch_id === selectedBatchId) || null,
-    [batchSources, selectedBatchId],
-  );
-
   const activeProject = useMemo(
     () =>
       projectSources.find(item => String(item.project_id) === String(selectedProjectId)) || null,
@@ -919,7 +851,7 @@ function TemplateBuilderApp() {
     try {
       const layoutPayload = JSON.parse(JSON.stringify(blocks));
       const rulesPayload = JSON.parse(JSON.stringify(adminRules));
-      const response = await fetch(`${API_BASE}/tasks/admin/templates`, {
+      const response = await fetch(`${API_BASE}/tasks/template-builder/templates`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -1176,67 +1108,22 @@ function TemplateBuilderApp() {
           ) : null}
 
           <div style={{ display: 'grid', gap: 8, margin: '12px 0' }}>
-            <fieldset style={{ border: 'none', padding: 0, margin: 0 }}>
-              <legend style={{ ...mutedStyle, marginBottom: 6 }}>Data mode</legend>
-              <div style={{ display: 'flex', gap: 16 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <input
-                    type="radio"
-                    name="data-mode"
-                    value={DATA_MODES.PROJECT}
-                    checked={dataMode === DATA_MODES.PROJECT}
-                    onChange={() => setDataMode(DATA_MODES.PROJECT)}
-                  />
-                  Project tasks
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <input
-                    type="radio"
-                    name="data-mode"
-                    value={DATA_MODES.BATCH}
-                    checked={dataMode === DATA_MODES.BATCH}
-                    onChange={() => setDataMode(DATA_MODES.BATCH)}
-                  />
-                  Imported batch
-                </label>
-              </div>
-            </fieldset>
-
-            {dataMode === DATA_MODES.BATCH ? (
-              <label>
-                Imported batch
-                <select
-                  value={selectedBatchId}
-                  onChange={event => setSelectedBatchId(event.target.value)}
-                  style={inputProps}
-                  disabled={sourceLoading}
-                >
-                  <option value="">Select a batch…</option>
-                  {batchSources.map(source => (
-                    <option key={source.batch_id} value={source.batch_id}>
-                      {`${source.original_file || source.batch_id} · ${source.row_count} rows`}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : (
-              <label>
-                Project data
-                <select
-                  value={selectedProjectId}
-                  onChange={event => setSelectedProjectId(event.target.value)}
-                  style={inputProps}
-                  disabled={sourceLoading}
-                >
-                  <option value="">Select a project…</option>
-                  {projectSources.map(source => (
-                    <option key={source.project_id} value={String(source.project_id)}>
-                      {`${source.project_name} · ${source.total_tasks} tasks`}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
+            <label>
+              Project data
+              <select
+                value={selectedProjectId}
+                onChange={event => setSelectedProjectId(event.target.value)}
+                style={inputProps}
+                disabled={sourceLoading}
+              >
+                <option value="">Select a project…</option>
+                {projectSources.map(source => (
+                  <option key={source.project_id} value={String(source.project_id)}>
+                    {`${source.project_name} · ${source.total_tasks} tasks`}
+                  </option>
+                ))}
+              </select>
+            </label>
 
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <button
@@ -1246,7 +1133,7 @@ function TemplateBuilderApp() {
                   cursor: sourceLoading ? 'not-allowed' : 'pointer',
                 }}
                 type="button"
-                onClick={dataMode === DATA_MODES.BATCH ? refreshBatchSources : refreshProjectSources}
+                onClick={refreshProjectSources}
                 disabled={sourceLoading}
               >
                 {sourceLoading ? 'Refreshing…' : 'Refresh list'}
@@ -1254,17 +1141,7 @@ function TemplateBuilderApp() {
               {detailLoading ? <span style={mutedStyle}>Loading fields…</span> : null}
             </div>
 
-            {dataMode === DATA_MODES.BATCH ? (
-              activeBatch ? (
-                <div style={mutedStyle}>
-                  {(activeBatch.original_file || 'Imported batch')} · {activeBatch.row_count} rows · Status: {activeBatch.status}
-                </div>
-              ) : (
-                <div style={mutedStyle}>
-                  Upload the task Excel via the Task Import tool, then refresh this list.
-                </div>
-              )
-            ) : activeProject ? (
+            {activeProject ? (
               <div style={mutedStyle}>
                 {activeProject.project_name} · {activeProject.total_tasks} tasks · Latest task{' '}
                 {activeProject.latest_task_at ? new Date(activeProject.latest_task_at).toLocaleString() : '—'}

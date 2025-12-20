@@ -167,7 +167,7 @@ function Projects() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                   {rows.map(project => (
-                    <tr key={project.id} className="hover:bg-slate-50">
+                    <tr key={project.id} className="hover:bg-green-50">
                       <td className="p-4">
                         <div className="flex items-center gap-3">
                           <button

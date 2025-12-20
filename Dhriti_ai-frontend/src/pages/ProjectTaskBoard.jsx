@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { NAV_TABS } from './project-board/data.js'
 import Sidebar from '../components/Sidebar.jsx'
 import Topbar from '../components/Topbar.jsx'
 import { getToken } from '../utils/auth.js'
@@ -34,6 +33,13 @@ export default function ProjectTaskBoard() {
   const projectFromState = preservedState?.project
   const projectName = projectFromState?.name || formatProjectName(projectId)
   const projectStatus = projectFromState?.status || 'Active'
+
+  const NAV_TABS = [
+    { id: 'task', label: 'Tasks' },
+    { id: 'review', label: 'Review' },
+    { id: 'members', label: 'Members' },
+  ]
+
 
   useEffect(() => {
     async function fetchProjectTasks() {
@@ -93,7 +99,7 @@ export default function ProjectTaskBoard() {
         }
 
         const data = await response.json();
-        setReviewTasks(Array.isArray(data) ? data : []);
+        setReviewTasks(Array.isArray(data) ? data : (data.tasks || []));
       } catch (err) {
         setReviewError(err.message);
       } finally {
@@ -119,7 +125,7 @@ export default function ProjectTaskBoard() {
         },
         body: JSON.stringify({
           user_id: userId,
-          project_id: Number(projectId),
+          project_id: projectId,
         }),
       });
 
@@ -292,14 +298,17 @@ export default function ProjectTaskBoard() {
                         <tr><td colSpan="5" className="p-6 text-center text-slate-500">No tasks are ready for review.</td></tr>
                       ) : (
                         reviewTasks.map(task => (
-                          <tr key={task.task_id} className="hover:bg-slate-50">
-                            <td className="p-3 font-mono text-xs">{task.task_id}</td>
+                          <tr key={task.task_id || task.id} className="hover:bg-slate-50">
+                            <td className="p-3 font-mono text-xs">{task.task_id || task.id || 'N/A'}</td>
                             <td className="p-3 font-medium">{task.task_name || 'N/A'}</td>
                             <td className="p-3">{task.annotator_email}</td>
-                            <td className="p-3">{new Date(task.submitted_at).toLocaleString()}</td>
+                            <td className="p-3">{task.submitted_at ? new Date(task.submitted_at).toLocaleString() : 'N/A'}</td>
                             <td className="p-3 text-right">
-                              <button className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600">
-                                Assign for Review
+                              <button 
+                                onClick={() => navigate(`/qc/project/${projectId}`)}
+                                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600"
+                              >
+                                review
                               </button>
                             </td>
                           </tr>

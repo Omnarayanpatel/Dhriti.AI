@@ -273,7 +273,9 @@ function TaskTemplatePlayer() {
     navigate('/tasks'); // Navigate to the main tasks dashboard
   };
 
-  const blocks = template?.layout || [];
+  const blocks = useMemo(() => {
+    return (template?.layout || []).filter(b => b.type !== 'meta' && b.frame);
+  }, [template]);
 
   const canvasMinHeight = useMemo(() => {
     const maxBottom = blocks.reduce(

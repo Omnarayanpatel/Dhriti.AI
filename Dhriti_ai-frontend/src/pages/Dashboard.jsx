@@ -187,25 +187,6 @@ function Dashboard() {
 
               </div>
 
-              {/* ---- Quality Check / For Review Block ---- */}
-              <div className="bg-white rounded-2xl border shadow p-6 hover:shadow-lg transition">
-                <div className="flex justify-between items-center mb-4">
-                  <h2 className="font-semibold text-lg">🔍 For Review</h2>
-                  <button className="px-3 py-1 rounded-md text-blue-600 text-sm hover:bg-blue-50">
-                    View All
-                  </button>
-                </div>
-                {reviewTasks.length > 0 ? (
-                  <div className="space-y-2">
-                    {reviewTasks.map((task) => (
-                      <div key={task.id} className="flex justify-between items-center p-2 rounded-lg hover:bg-gray-50">
-                        <div className="font-medium text-sm">{task.name} (from: {task.assignee_name})</div>
-                        <button className="px-3 py-1 text-sm font-semibold rounded-md bg-blue-500 text-white hover:bg-blue-600">Review</button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (<div className="text-gray-400 text-sm">No tasks are currently waiting for review.</div>)}
-              </div>
             </>
           )}
         </div>
