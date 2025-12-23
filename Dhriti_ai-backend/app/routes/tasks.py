@@ -1,6 +1,6 @@
 import json
 import os
-from . import export_routes, image_routes
+from . import export_routes, image_routes, video_routes
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from uuid import UUID
@@ -69,6 +69,7 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 # Include the router for exporting task outputs
 router.include_router(export_routes.router)
 router.include_router(image_routes.router)
+router.include_router(video_routes.router)
 
 def require_admin(current_user: TokenData = Depends(get_current_user)) -> TokenData:
     if current_user.role != "admin":
@@ -682,6 +683,13 @@ def get_task_for_review(
 
     task, annotation, user, data_category, project_type, project_id = task_data
 
+    # Fetch the template used for this annotation, or fallback to latest project template
+    template = None
+    if annotation.template_id:
+        template = db.query(ProjectTemplate).filter(ProjectTemplate.id == annotation.template_id).first()
+    if not template:
+        template = db.query(ProjectTemplate).filter(ProjectTemplate.project_id == project_id).order_by(ProjectTemplate.created_at.desc()).first()
+
     # Construct the response dictionary, similar to the list endpoint
     result = {
         "id": task.id,
@@ -697,6 +705,7 @@ def get_task_for_review(
         "status": task.status,
         "payload": task.payload,
         "annotations": annotation.annotations,
+        "template": template.to_dict() if template else None,
     }
 
     return result

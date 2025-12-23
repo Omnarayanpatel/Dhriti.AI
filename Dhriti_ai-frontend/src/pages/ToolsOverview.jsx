@@ -28,13 +28,13 @@ function ToolsOverview() {
       icon: <Video size={32} />,
       color: "from-orange-500 to-red-500",
     },
-    {
+    /* {
       title: "Audio / Sound Check",
       desc: "Transcribe & analyze audio + detect acoustic events.",
       link: "/tools/audio-check",
       icon: <Mic size={32} />,
       color: "from-green-500 to-lime-500",
-    },
+    }, */
 
     // 🔥 NEW TEMPLATE BUILDER TOOL
     {

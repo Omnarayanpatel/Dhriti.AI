@@ -38,7 +38,6 @@ function ImageAnnotatorComponent() {
   const [rulerPos, setRulerPos] = useState(null);
 
   // labeling
-  const [labels, setLabels] = useState(['Person', 'Car', 'Bike', 'Tree']);
   const [showLabelModal, setShowLabelModal] = useState(false);
   const [labelValue, setLabelValue] = useState('');
   const [pendingAnnotation, setPendingAnnotation] = useState(null);
@@ -1201,7 +1200,7 @@ function ImageAnnotatorComponent() {
         {selectedAnnotation ? (
           <AnnotationInspector
             annotation={selectedAnnotation}
-            labels={labels}
+            labels={labelConfigs}
             onLabelChange={updateSelectedAnnotationLabel}
             onColorChange={handleColorSelect}
           />

@@ -7,6 +7,7 @@ from app.models.project import Project, ProjectAssignment
 from app.models.user import User
 from app.routes.protected import get_current_user
 from app.schemas.dashboard import DashboardSummary, TeamMember
+from app.schemas.enums import ProjectStatus
 from app.schemas.token import TokenData
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -34,19 +35,26 @@ def get_dashboard_summary(
 
     # An "ended" project is one with a 'completed' status.
     ended_projects_count = (
-        db.query(func.count(Project.id)).filter(Project.status == "completed").scalar() or 0
+        db.query(func.count(Project.id)).filter(Project.status == ProjectStatus.COMPLETED).scalar() or 0
     )
 
     # A project is "running" if it has been assigned to at least one user and is not completed.
-    running_projects_count = db.query(func.count(Project.id.distinct())).join(
-        ProjectAssignment, Project.id == ProjectAssignment.project_id
-    ).filter(Project.status != "completed").scalar() or 0
+    running_projects_count = (
+        db.query(func.count(Project.id.distinct()))
+        .join(ProjectAssignment, Project.id == ProjectAssignment.project_id)
+        .filter(Project.status == ProjectStatus.RUNNING)
+        .scalar() or 0
+    )
     
-    # A project is "pending" if it has not been assigned to any user yet.
+    # A project is "pending" if it has not been assigned to any user yet and is active.
     # We find this by doing a LEFT JOIN and looking for projects with no assignment.
-    pending_projects_count = db.query(Project).outerjoin(
-        ProjectAssignment, Project.id == ProjectAssignment.project_id
-    ).filter(ProjectAssignment.id == None).count()
+    pending_projects_count = (
+        db.query(Project)
+        .outerjoin(ProjectAssignment, Project.id == ProjectAssignment.project_id)
+        .filter(ProjectAssignment.id == None)
+        .filter(Project.status == ProjectStatus.ACTIVE)
+        .count()
+    )
 
     # 2. Get team members (e.g., all users)
     # Eagerly load the 'profile' relationship to avoid extra queries.

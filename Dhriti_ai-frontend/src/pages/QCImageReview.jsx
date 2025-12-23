@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import QCReviewLayout from './QCReviewLayout';
 import { useQCReview } from './useQCReview';
 import AnnotationCanvas from './AnnotationCanvas';
@@ -13,18 +13,59 @@ export default function QCImageReview() {
   const [highlightedId, setHighlightedId] = useState(null);
   const imageRef = useRef(null);
   const containerRef = useRef(null); // Ref for the image container for pan
+  const dragStart = useRef({ x: 0, y: 0 }); // Ref to store drag start coordinates
 
   const [isDragging, setIsDragging] = useState(false);
+  const [localAnnotations, setLocalAnnotations] = useState([]);
 
   // --- Helper functions to find data dynamically ---
 
   // Finds the first value in the payload that looks like an image URL.
-  const getImageUrl = (payload) => {
-    if (!payload) return null;
-    if (payload.image_url) return payload.image_url; // Standard case
-    // Find a key that contains a URL
-    const urlKey = Object.keys(payload).find(k => typeof payload[k] === 'string' && payload[k].startsWith('http'));
-    return urlKey ? payload[urlKey] : null;
+  const getImageUrl = (taskData) => {
+    if (!taskData || !taskData.payload) return null;
+    const { payload, template } = taskData;
+
+    // Helper to resolve dot notation paths (e.g. "data.image")
+    const resolvePath = (obj, path) => {
+      if (typeof path !== 'string') return undefined;
+      return path.split('.').reduce((acc, part) => acc && acc[part], obj);
+    };
+
+    // 1. Try to use the template mapping if available (Most accurate)
+    if (template?.layout && template?.rules) {
+      const imgComp = template.layout.find(l => l.type === 'Image');
+      if (imgComp) {
+        const rule = template.rules.find(r => r.component_key === imgComp.id && r.target_prop === 'src');
+        if (rule) {
+          const val = resolvePath(payload, rule.source_path);
+          if (val) return val;
+        }
+      }
+    }
+
+    // 2. Check for common explicit keys
+    const commonKeys = ['image_url', 'image', 'img', 'src', 'file_url', 'url', 'link'];
+    for (const key of commonKeys) {
+      if (payload[key] && typeof payload[key] === 'string') return payload[key];
+    }
+
+    // 3. Scan values for image-like patterns
+    const values = Object.values(payload);
+    
+    // Priority A: Base64 Data URIs
+    const base64 = values.find(v => typeof v === 'string' && v.startsWith('data:image'));
+    if (base64) return base64;
+
+    // Priority B: URLs with image extensions
+    const imgExts = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.svg', '.tiff'];
+    const extMatch = values.find(v => typeof v === 'string' && v.startsWith('http') && imgExts.some(ext => v.toLowerCase().includes(ext)));
+    if (extMatch) return extMatch;
+
+    // Priority C: Any HTTP/HTTPS URL (Fallback for S3 presigned URLs, etc.)
+    const anyUrl = values.find(v => typeof v === 'string' && v.startsWith('http'));
+    if (anyUrl) return anyUrl;
+
+    return null;
   };
 
   // Finds the array of annotations, which might be nested.
@@ -34,9 +75,22 @@ export default function QCImageReview() {
     return [];
   };
 
-  const imageUrl = task ? getImageUrl(task.payload) : null;
-  const imageAnnotations = task ? getAnnotations(task.annotations) : [];
-  const selectedAnnotation = imageAnnotations.find(a => a.id === highlightedId) || null;
+  // Sync annotations to local state when task loads
+  useEffect(() => {
+    if (task) {
+      setLocalAnnotations(getAnnotations(task.annotations));
+    }
+  }, [task]);
+
+  // Extract allowed labels from template if available
+  const templateLabels = useMemo(() => {
+    if (!task?.template?.layout) return [];
+    const meta = task.template.layout.find(item => item.type === 'meta');
+    return meta?.props?.annotation_settings?.labels || [];
+  }, [task]);
+
+  const imageUrl = getImageUrl(task);
+  const selectedAnnotation = localAnnotations.find(a => a.id === highlightedId) || null;
 
   // --- Effects ---
   useEffect(() => {
@@ -69,16 +123,18 @@ export default function QCImageReview() {
     if (zoom > 1) { // Only allow pan if zoomed in
       setIsDragging(true);
       // Store initial mouse position and current pan offset
-      containerRef.current.dataset.startX = e.clientX - pan.x;
-      containerRef.current.dataset.startY = e.clientY - pan.y;
+      dragStart.current = {
+        x: e.clientX - pan.x,
+        y: e.clientY - pan.y
+      };
       containerRef.current.style.cursor = 'grabbing';
     }
   };
 
   const handleMouseMove = (e) => {
     if (!isDragging) return;
-    const newX = e.clientX - parseFloat(containerRef.current.dataset.startX);
-    const newY = e.clientY - parseFloat(containerRef.current.dataset.startY);
+    const newX = e.clientX - dragStart.current.x;
+    const newY = e.clientY - dragStart.current.y;
     setPan({ x: newX, y: newY });
   };
 
@@ -96,6 +152,13 @@ export default function QCImageReview() {
       containerRef.current.style.cursor = 'default';
     }
   }, [zoom]);
+
+  const handleLabelChange = (newLabel) => {
+    if (!selectedAnnotation) return;
+    setLocalAnnotations(prev => 
+      prev.map(a => a.id === selectedAnnotation.id ? { ...a, label: newLabel } : a)
+    );
+  };
 
   // --- Early returns moved to after all hooks ---
   if (loading) return <QCReviewLayout loading={true}><Loader /></QCReviewLayout>;
@@ -136,7 +199,7 @@ export default function QCImageReview() {
   
                   {/* Annotations Layer */}
                   <AnnotationCanvas
-                    annotations={imageAnnotations}
+                    annotations={localAnnotations}
                     editMode={qcProps.editMode}
                     naturalSize={naturalSize}
                     displaySize={displaySize}
@@ -167,10 +230,10 @@ export default function QCImageReview() {
 
 
           <div className="space-y-3 text-sm">
-            <h3 className="mt-4 mb-2 font-semibold">Labels ({imageAnnotations.length || 0})</h3>
-            {imageAnnotations.length > 0 ? (
+            <h3 className="mt-4 mb-2 font-semibold">Labels ({localAnnotations.length || 0})</h3>
+            {localAnnotations.length > 0 ? (
               <ul className="list-disc ml-4 space-y-2">
-                {imageAnnotations.map((a, index) => (
+                {localAnnotations.map((a, index) => (
                   <li
                     key={a.id || index} // Use stable key
                     onClick={() => setHighlightedId(a.id)} // Highlight on click
@@ -189,7 +252,26 @@ export default function QCImageReview() {
             <div className="mt-6 p-3 border-t">
               <h3 className="font-semibold mb-2">Edit Selected</h3>
               <label className="block text-xs font-medium text-gray-600">Label</label>
-              <input value={selectedAnnotation.label} onChange={() => {}} className="w-full mt-1 border rounded p-1 text-sm" />
+              {templateLabels.length > 0 ? (
+                <select
+                  value={selectedAnnotation.label}
+                  disabled={!qcProps.editMode}
+                  onChange={(e) => handleLabelChange(e.target.value)}
+                  className="w-full mt-1 border rounded p-1 text-sm bg-white disabled:bg-gray-50 disabled:text-gray-500"
+                >
+                  <option value="">Select Label</option>
+                  {templateLabels.map((l, idx) => {
+                    const val = typeof l === 'string' ? l : (l.text || l.name);
+                    return <option key={idx} value={val}>{val}</option>;
+                  })}
+                </select>
+              ) : (
+                <input 
+                  value={selectedAnnotation.label} 
+                  readOnly 
+                  className="w-full mt-1 border rounded p-1 text-sm bg-gray-50 text-gray-500 cursor-not-allowed" 
+                />
+              )}
               <p className="text-xs text-gray-400 mt-2">Full editing controls would go here.</p>
             </div>
           )}

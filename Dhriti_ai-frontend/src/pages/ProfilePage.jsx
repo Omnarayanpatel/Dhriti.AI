@@ -88,8 +88,8 @@ function ProfilePage() {
           ))}
         </div>
 
-        {/* 🔽 Bottom Action Section */}
-        <div className="mt-14 bg-white rounded-2xl shadow-lg p-6">
+         {/* 🔽 Bottom Action Section */}
+        {/* <div className="mt-14 bg-white rounded-2xl shadow-lg p-6">
           <h3 className="text-xl font-semibold text-gray-800 mb-4">
             Quick Actions
           </h3>
@@ -131,7 +131,7 @@ function ProfilePage() {
               <FaPlus /> Add Client
             </button>
           </div>
-        </div>
+        </div> */} 
       </div>
 
       {/* Footer */}

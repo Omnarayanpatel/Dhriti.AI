@@ -45,6 +45,12 @@ const textProjectTypes = [
   { value: 'Grammar Correction', description: 'Mark errors and add corrected versions of sentences.' },
 ];
 
+const videoProjectTypes = [
+  { value: 'Video Object Tracking', description: 'Track objects across multiple video frames with bounding boxes.' },
+  { value: 'Video Classification', description: 'Assign one or more labels to the entire video.' },
+  { value: 'Action Recognition', description: 'Identify and label specific actions or events occurring in the video.' },
+];
+
 function AddProject() {
   const [form, setForm] = useState(initialForm)
   const [clients, setClients] = useState([])
@@ -98,6 +104,7 @@ function AddProject() {
     }
   }, [form.association]);
 
+  
   const handleSubmit = async event => {
     event.preventDefault()
     const trimmedName = form.name.trim()
@@ -280,6 +287,17 @@ function AddProject() {
                             <div className="hidden text-sm text-slate-600 group-data-[focus]:block">{type.description}</div>
                           </ListboxOption>
                         ))
+                      ) : form.dataCategory === 'video' ? (
+                        videoProjectTypes.map(type => (
+                          <ListboxOption
+                            key={type.value}
+                            value={type.value}
+                            className="group flex cursor-default items-center gap-2 rounded-lg py-1.5 px-3 select-none data-[focus]:bg-slate-100 min-h-[36px]"
+                          >
+                            <div className="text-sm text-slate-900 group-data-[focus]:hidden">{type.value}</div>
+                            <div className="hidden text-sm text-slate-600 group-data-[focus]:block">{type.description}</div>
+                          </ListboxOption>
+                        ))
                       ) : (
                         <>
                           <ListboxOption value="annotation" className="group flex cursor-default items-center gap-2 rounded-lg py-1.5 px-3 select-none data-[focus]:bg-slate-100 min-h-[36px]">
@@ -379,7 +397,7 @@ function AddProject() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+           {/*  <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-slate-800">Task Automation</h2>
                 <label className="inline-flex items-center gap-2 text-sm text-slate-600">
@@ -393,9 +411,9 @@ function AddProject() {
                 </label>
               </div>
               <p className="text-xs text-slate-500">Automatically submits tasks upon completion when enabled.</p>
-            </section>
+            </section> */}
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+            {/* <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
               <h2 className="text-lg font-semibold text-slate-800">Reviewer Control</h2>
               <div className="grid gap-3 md:grid-cols-3">
                 <label className="inline-flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
@@ -474,7 +492,7 @@ function AddProject() {
                 placeholder="Add reviewer guidelines or helpful context."
                 className="mt-4 w-full resize-none rounded-lg border border-slate-200 px-3 py-2 focus:border-slate-400 focus:outline-none"
               />
-            </section>
+            </section> */}
 
             <div className="flex justify-end gap-3">
               <button

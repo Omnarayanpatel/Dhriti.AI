@@ -10,7 +10,8 @@ import {
   ClipboardList,
   PlayCircle,
   LogOut,
-  User
+  User,
+  FileUp
 } from "lucide-react";
 
 function Sidebar() {
@@ -81,6 +82,7 @@ function Sidebar() {
                 icon: <PlayCircle size={22} />,
                 label: "Reports"
               })}
+              {navItem({ to: "/tools/client-uploads", icon: <FileUp size={22} />, label: "client's uploads" })}
             </>
           )}
 

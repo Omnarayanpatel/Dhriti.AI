@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { BsThreeDotsVertical } from "react-icons/bs";
 import {
   RiPlayLine,
@@ -8,6 +9,8 @@ import {
   RiSkipLeftLine,
   RiSkipRightLine,
 } from "react-icons/ri";
+import { getToken } from "../utils/auth";
+const API_BASE = 'http://localhost:8000';
 
 // --- Constants for the new modal ---
 const DEFAULT_COLOR_OPTIONS = [
@@ -22,6 +25,8 @@ const DEFAULT_COLOR_OPTIONS = [
 export default function VideoAnnotationTool() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const navigate = useNavigate();
+  const { taskId } = useParams();
 
   // -------- app state --------
   const [videoURL, setVideoURL] = useState(null);
@@ -102,6 +107,7 @@ export default function VideoAnnotationTool() {
   const [mappingLoading, setMappingLoading] = useState(false);
   const [mappingError, setMappingError] = useState("");
 
+  const [submitting, setSubmitting] = useState(false);
 
   // ensure drawMode matches tool
   useEffect(() => {
@@ -118,27 +124,211 @@ export default function VideoAnnotationTool() {
     }
   }, [annotationsMap, labels]);
 
+  // --- Effect: Fetch Server Task ---
+  useEffect(() => {
+    if (!taskId) return;
+
+    const fetchTask = async () => {
+      const token = getToken();
+      if (!token) {
+        alert("Please log in to view this task.");
+        navigate("/login");
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE}/tasks/video/${taskId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to load task");
+        }
+
+        const data = await response.json();
+        
+        // 1. Load Video
+        // Check if template rules exist to find the video column
+        let videoKey = null;
+        if (data.template?.rules) {
+          const rule = data.template.rules.find(r => r.target_prop === 'src');
+          if (rule) videoKey = rule.source_path;
+        }
+        if (!videoKey && data.template?.layout) {
+          const layoutItem = data.template.layout.find(l => l.type === 'video');
+          if (layoutItem) videoKey = layoutItem.key;
+        }
+        
+        if (videoKey && data.task.payload[videoKey]) {
+          setVideoURL(data.task.payload[videoKey]);
+        } else {
+          // Fallback: try to find any URL-like string in payload
+          let fallbackKey = Object.keys(data.task.payload).find(k => /url|link|src|video|orig|asset/i.test(k));
+          
+          // If key regex fails, look for values ending in video extensions
+          if (!fallbackKey) {
+            fallbackKey = Object.keys(data.task.payload).find(k => {
+              const val = data.task.payload[k];
+              return typeof val === 'string' && /\.(mp4|webm|ogg|mov|m4v)(\?|$)/i.test(val);
+            });
+          }
+
+          if (fallbackKey) setVideoURL(data.task.payload[fallbackKey]);
+        }
+
+        // 2. Load Labels from Template
+        const metaBlock = data.template?.layout?.find(item => item.type === 'meta');
+        const templateLabels = metaBlock?.props?.annotation_settings?.labels;
+        
+        if (templateLabels && templateLabels.length > 0) {
+          // Map backend label format {text, color} to frontend format {name, color}
+          const mappedLabels = templateLabels.map(l => ({ name: l.text, color: l.color }));
+          setLabels(mappedLabels);
+          if (mappedLabels.length > 0) setCurrentLabel(mappedLabels[0].name);
+        }
+
+        // 3. Load Existing Annotations
+        if (data.annotations && data.annotations.annotationsMap) {
+          setAnnotationsMap(data.annotations.annotationsMap);
+        }
+      } catch (err) {
+        console.error("Error loading task:", err);
+      }
+    };
+
+    fetchTask();
+  }, [taskId, navigate]);
+
   // --- Effects for new mapping modal ---
 
   // Fetch projects when modal is opened
   useEffect(() => {
     if (showVideoMappingModal) {
-      // In a real app, you would fetch this from your backend:
-      // fetch('/api/projects').then(...)
-      setMappingProjects([
-        { id: 'proj_1', name: 'Project Alpha - City Traffic' },
-        { id: 'proj_2', name: 'Project Beta - Warehouse Stock' },
-      ]);
+      const fetchProjects = async () => {
+        setMappingLoading(true);
+        setMappingError("");
+        try {
+          const token = getToken();
+          if (!token) {
+            setMappingError("Authentication token not found. Please log in again.");
+            return;
+          }
+          const response = await fetch(`${API_BASE}/tasks/admin/projects`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (response.ok) {
+            const data = await response.json();
+            setMappingProjects(data);
+          } else {
+            const errorData = await response.json().catch(() => ({}));
+            const detail = errorData.detail;
+            if (response.status === 401) {
+              setMappingError(detail || "Unauthorized. Your session may have expired. Please log in again.");
+            } else {
+              setMappingError(detail || `Failed to fetch projects. Status: ${response.status}`);
+            }
+            setMappingProjects([]);
+          }
+        } catch (error) {
+          console.error("Error fetching projects:", error);
+          setMappingError("An error occurred while fetching projects. Check the console for details.");
+        } finally {
+          setMappingLoading(false);
+        }
+      };
+      fetchProjects();
     }
   }, [showVideoMappingModal]);
 
   // Fetch project columns when a project is selected
   useEffect(() => {
     if (selectedProjectId) {
-      // In a real app, fetch columns for the selected project
-      setProjectColumns(['video_url', 'thumbnail_url', 'item_id', 'source']);
+      const fetchColumns = async () => {
+        setMappingLoading(true);
+        setMappingError("");
+        try {
+          const token = getToken();
+          if (!token) {
+            setMappingError("Authentication token not found. Please log in again.");
+            return;
+          }
+          // Inspired by ImageAnnotation.jsx, fetch a sample task to discover the project's data columns (payload keys)
+          // and any existing template configuration. This is the correct pattern and resolves the "Not Found" error.
+          const response = await fetch(`${API_BASE}/tasks/admin/projects/${selectedProjectId}/sample-task`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (response.ok) {
+            const sampleTaskData = await response.json();
+            const columns = Object.keys(sampleTaskData.payload || {});
+            setProjectColumns(columns);
+
+            
+            // This logic mimics the setup flow in the image annotator.
+            // It checks if the project already has a template with label configurations
+            // and pre-fills them, saving the user from re-entering them.
+            const metaBlock = Array.isArray(sampleTaskData.template?.layout)
+              ? sampleTaskData.template.layout.find(item => item.type === 'meta')
+              : null;
+            const settings = metaBlock ? metaBlock.props?.annotation_settings : null;
+
+            if (settings?.labels && settings.labels.length > 0) {
+              // If a template with labels is found, load them.
+              // The template stores {text, color}, but this component uses {text, color: {id, hex}}.
+              // We need to convert the loaded data.
+              const convertedLabels = settings.labels.map(label => {
+                const matchingColor = DEFAULT_COLOR_OPTIONS.find(c => c.hex === label.color);
+                return {
+                  text: label.text,
+                  color: matchingColor || DEFAULT_COLOR_OPTIONS[0] // Fallback to the first default color
+                };
+              });
+              setLabelConfigs(convertedLabels);
+            } else {
+              // Otherwise, reset to the default for a new configuration.
+              setLabelConfigs([{ text: "", color: DEFAULT_COLOR_OPTIONS[0] }]);
+            }
+            
+
+            // Check the template 'rules' to find the video column mapping.
+            const videoRule = Array.isArray(sampleTaskData.template?.rules)
+              ? sampleTaskData.template.rules.find(rule => rule.target_prop === 'src')
+              : null;
+
+            if (videoRule && videoRule.source_path) {
+              setVideoMapping(prev => ({ ...prev, video: videoRule.source_path }));
+            } else {
+              // Fallback to auto-guessing if no rule is found
+              const videoGuess = columns.find(col => /video|mp4|mov|url|link|src/i.test(col));
+              if (videoGuess) {
+                setVideoMapping(prev => ({ ...prev, video: videoGuess }));
+              }
+            }
+          } else {
+            const errorData = await response.json().catch(() => ({}));
+            const detail = errorData.detail;
+            if (response.status === 401) {
+              setMappingError(detail || "Unauthorized. Your session may have expired. Please log in again.");
+              // Automatically redirect to login if unauthorized
+              setTimeout(() => navigate("/login"), 2000);
+            } else {
+              setMappingError(detail || `Failed to fetch project data. Status: ${response.status}`);
+            }
+            setProjectColumns([]);
+            setVideoMapping(prev => ({ ...prev, video: "" }));
+          }
+        } catch (error) {
+          console.error("Error fetching project data:", error);
+          setMappingError("An error occurred while fetching project data. Check the console for details.");
+        } finally {
+          setMappingLoading(false);
+        }
+      };
+      fetchColumns();
     } else {
       setProjectColumns([]);
+      setVideoMapping(prev => ({ ...prev, video: "" }));
+      // Also reset labels when the project is deselected.
+      setLabelConfigs([{ text: "", color: DEFAULT_COLOR_OPTIONS[0] }]);
     }
   }, [selectedProjectId]);
 
@@ -218,6 +408,13 @@ export default function VideoAnnotationTool() {
     const url = URL.createObjectURL(file);
     setVideoURL(url);
     setAnnotationsMap({});
+
+    // Reset task-creation specific state when in local mode
+    setSelectedProjectId("");
+    setProjectColumns([]);
+    setVideoMapping({ video: "" });
+    setLabelConfigs([{ text: "", color: DEFAULT_COLOR_OPTIONS[0] }]);
+
     setSelection({ frame: null, index: null });
     undoStackRef.current = [];
     setRedoStack([]);
@@ -1005,22 +1202,92 @@ export default function VideoAnnotationTool() {
     setAnnotationsMap(next);
   };
 
-  // --- Handlers for new mapping modal ---
-  const handleCreateVideoTask = () => {
+  // --- Handlers for new mapping modal (template creation) ---
+  const handleSaveVideoTemplate = async () => {
     setMappingLoading(true);
     setMappingError("");
-    console.log("Creating video task with:", {
-      projectId: selectedProjectId,
-      videoMapping,
-      labels: labelConfigs,
-    });
-    // Placeholder for API call
-    setTimeout(() => {
-      // On success:
+    try {
+      const token = getToken();
+      // Convert labels to the format the backend expects: [{text, color: '#hex'}]
+      const labelsToSave = labelConfigs
+        .filter(l => l.text.trim() !== "")
+        .map(l => ({
+          text: l.text,
+          color: l.color.hex
+        }));
+
+      const response = await fetch(`${API_BASE}/tasks/video/${selectedProjectId}/template/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          video_column: videoMapping.video,
+          labels: labelsToSave,
+        }),
+      });
+
+      if (response.ok) {
+        setShowVideoMappingModal(false);
+        // Optionally refresh the task list here
+      } else {
+        const err = await response.json().catch(() => ({}));
+        setMappingError(err.detail || "Failed to create task");
+      }
+    } catch (error) {
+      console.error("Error creating task:", error);
+      setMappingError("An unexpected error occurred.");
+    } finally {
       setMappingLoading(false);
-      setShowVideoMappingModal(false);
-      // You might want to load the created task here
-    }, 1000);
+    }
+  };
+
+  // --- Submit Handler ---
+  const handleSubmit = async () => {
+    if (!taskId) return;
+    const token = getToken();
+    if (!token) return;
+
+    setSubmitting(true);
+    try {
+      // 1. Submit Annotations
+      const response = await fetch(`${API_BASE}/tasks/video/${taskId}/annotations`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ annotationsMap, labels }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || "Failed to submit annotations");
+      }
+
+      // 2. Fetch Next Task
+      const nextRes = await fetch(`${API_BASE}/tasks/video/${taskId}/next`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (nextRes.ok) {
+        const nextData = await nextRes.json();
+        if (nextData.next_task_id) {
+          navigate(`/tools/video-annotator/${nextData.next_task_id}`);
+        } else {
+          alert("All tasks completed!");
+          navigate("/projects");
+        }
+      } else {
+        navigate("/projects");
+      }
+    } catch (error) {
+      console.error(error);
+      alert(error.message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   // current list for sidebar
@@ -1098,7 +1365,7 @@ export default function VideoAnnotationTool() {
               <div className="flex flex-wrap gap-2 mt-3">
                 <button onClick={() => { setCurrentTool("select"); setDrawMode(false); }} className={`px-3 py-1 rounded-md border ${currentTool === "select" ? "bg-gray-200" : "bg-white"}`}><i className="ri-cursor-line"></i></button>
 
-                <button onClick={() => { setCurrentTool("bbox"); setDrawMode(true); }} className={`px-3 py-1 rounded-md border ${currentTool === "bbox" ? "bg-green-200" : "bg-white"}`}><i class="ri-square-line"></i></button>
+                <button onClick={() => { setCurrentTool("bbox"); setDrawMode(true); }} className={`px-3 py-1 rounded-md border ${currentTool === "bbox" ? "bg-green-200" : "bg-white"}`}><i className="ri-square-line"></i></button>
 
                 <button onClick={() => { setCurrentTool("polygon"); setDrawMode(true); }} className={`px-3 py-1 rounded-md border ${currentTool === "polygon" ? "bg-green-200" : "bg-white"}`}><i className="ri-pentagon-line"></i></button>
 
@@ -1166,6 +1433,13 @@ export default function VideoAnnotationTool() {
                     <select value={currentLabel} onChange={(e) => setCurrentLabel(e.target.value)} className="border rounded-md px-3 py-1 text-sm">
                       {labels.map(l => <option key={l.name} value={l.name}>{l.name}</option>)}
                     </select>
+                  </div>
+
+                  {/* Submit Button */}
+                  <div className="ml-4">
+                    <button onClick={handleSubmit} disabled={submitting} className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+                      {submitting ? "Submitting..." : "Submit & Next"}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1360,7 +1634,7 @@ export default function VideoAnnotationTool() {
                   </button>
 
                   <button
-                    onClick={handleCreateVideoTask}
+                    onClick={handleSaveVideoTemplate}
                     disabled={
                       mappingLoading ||
                       !selectedProjectId ||
