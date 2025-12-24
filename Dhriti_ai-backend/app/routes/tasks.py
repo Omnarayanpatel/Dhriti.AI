@@ -710,6 +710,53 @@ def get_task_for_review(
 
     return result
 
+@router.delete("/admin/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_task(
+    task_id: UUID,
+    _: TokenData = Depends(require_admin),
+    db: Session = Depends(database.get_db),
+):
+    """
+    Deletes a specific task by its ID and updates project stats.
+    Handles cleanup of annotations and assignment stats if the task was completed.
+    """
+    task = db.query(ProjectTask).filter(ProjectTask.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+
+    project = db.query(Project).filter(Project.id == task.project_id).first()
+
+    # Check if the task has been completed (has an annotation)
+    annotation = db.query(TaskAnnotation).filter(TaskAnnotation.task_id == task.task_id).first()
+    
+    if annotation:
+        # 1. Revert Project Completed Count
+        if project and project.total_tasks_completed and project.total_tasks_completed > 0:
+            project.total_tasks_completed -= 1
+        
+        # 2. Revert User Assignment Stats
+        assignment = db.query(ProjectAssignment).filter(
+            ProjectAssignment.project_id == task.project_id,
+            ProjectAssignment.user_id == annotation.user_id
+        ).first()
+        
+        if assignment:
+            if assignment.completed_tasks and assignment.completed_tasks > 0:
+                assignment.completed_tasks -= 1
+            
+            # Recalculate pending tasks
+            if assignment.total_task_assign:
+                assignment.pending_tasks = max(0, assignment.total_task_assign - (assignment.completed_tasks or 0))
+        
+        # 3. Delete the annotation
+        db.delete(annotation)
+
+    if project and project.total_tasks_added and project.total_tasks_added > 0:
+        project.total_tasks_added -= 1
+
+    db.delete(task)
+    db.commit()
+
 @router.post(
     "/projects/{project_id}/next-task",
     response_model=ProjectTaskResponse,
