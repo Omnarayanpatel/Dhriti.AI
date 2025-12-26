@@ -45,6 +45,9 @@ class MappingRule(BaseModel):
     target_prop: str
     source_path: str
 
+class BulkDeleteRequest(BaseModel):
+    task_ids: List[UUID]
+
 class AutoTemplateRequest(BaseModel):
     rules: List[MappingRule]
     labels: Optional[List[Dict[str, Any]]] = None
@@ -565,6 +568,45 @@ def get_project_tasks(
     return {"tasks": tasks_response, "assigned_users": assigned_users}
 
 
+@router.get("/admin/projects/{project_id}/finalized-tasks", status_code=status.HTTP_200_OK)
+def get_project_finalized_tasks(
+    project_id: int,
+    page: int = 1,
+    limit: int = 200,
+    _: TokenData = Depends(require_admin),
+    db: Session = Depends(database.get_db),
+):
+    """
+    Get all finalized (qc_accepted) tasks for a project, including annotator info.
+    """
+    query = (
+        db.query(ProjectTask, TaskAnnotation, User)
+        .join(TaskAnnotation, ProjectTask.task_id == TaskAnnotation.task_id)
+        .join(User, TaskAnnotation.user_id == User.id)
+        .filter(
+            ProjectTask.project_id == project_id,
+            ProjectTask.status == TaskStatus.QC_ACCEPTED
+        )
+    )
+
+    total_count = query.count()
+    tasks_data = query.order_by(TaskAnnotation.submitted_at.desc()).offset((page - 1) * limit).limit(limit).all()
+
+    results = []
+    for task, annotation, user in tasks_data:
+        results.append({
+            "id": task.id,
+            "task_id": task.task_id,
+            "task_name": task.task_name,
+            "file_name": task.file_name,
+            "annotator_email": user.email,
+            "status": task.status,
+            "submitted_at": annotation.submitted_at,
+        })
+
+    return {"tasks": results, "total_count": total_count}
+
+
 @router.get("/admin/projects/{project_id}/review-tasks", status_code=status.HTTP_200_OK)
 def get_project_review_tasks(
     project_id: int,
@@ -572,7 +614,7 @@ def get_project_review_tasks(
     data_category_filter: Optional[str] = None,
     status_filter: Optional[TaskStatus] = None,
     page: int = 1,
-    limit: int = 20,
+    limit: int = 200,
     current_user: TokenData = Depends(require_admin), # Use current_user for role check
     db: Session = Depends(database.get_db),
 ):
@@ -709,6 +751,47 @@ def get_task_for_review(
     }
 
     return result
+
+@router.delete("/admin/tasks/bulk", status_code=status.HTTP_204_NO_CONTENT)
+def bulk_delete_tasks(
+    payload: BulkDeleteRequest,
+    _: TokenData = Depends(require_admin),
+    db: Session = Depends(database.get_db),
+):
+    """
+    Deletes multiple tasks by their IDs and updates project stats.
+    """
+    for task_id in payload.task_ids:
+        task = db.query(ProjectTask).filter(ProjectTask.id == task_id).first()
+        if not task:
+            continue
+
+        project = db.query(Project).filter(Project.id == task.project_id).first()
+        annotation = db.query(TaskAnnotation).filter(TaskAnnotation.task_id == task.task_id).first()
+        
+        if annotation:
+            if project and project.total_tasks_completed and project.total_tasks_completed > 0:
+                project.total_tasks_completed -= 1
+            
+            assignment = db.query(ProjectAssignment).filter(
+                ProjectAssignment.project_id == task.project_id,
+                ProjectAssignment.user_id == annotation.user_id
+            ).first()
+            
+            if assignment:
+                if assignment.completed_tasks and assignment.completed_tasks > 0:
+                    assignment.completed_tasks -= 1
+                if assignment.total_task_assign:
+                    assignment.pending_tasks = max(0, assignment.total_task_assign - (assignment.completed_tasks or 0))
+            
+            db.delete(annotation)
+
+        if project and project.total_tasks_added and project.total_tasks_added > 0:
+            project.total_tasks_added -= 1
+
+        db.delete(task)
+    
+    db.commit()
 
 @router.delete("/admin/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_task(

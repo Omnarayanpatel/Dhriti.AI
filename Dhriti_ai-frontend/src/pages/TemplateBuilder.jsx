@@ -5,6 +5,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar.jsx';
 import Topbar from '../components/Topbar.jsx';
 import { getToken } from '../utils/auth.js';
@@ -203,6 +204,7 @@ function uid() {
 }
 
 function TemplateBuilderApp() {
+  const navigate = useNavigate();
   const [projectSources, setProjectSources] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [availableFields, setAvailableFields] = useState([]);
@@ -920,6 +922,13 @@ function TemplateBuilderApp() {
     <div style={styles.app} className="app">
       <div style={styles.top}>
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            style={buttonStyle}
+            onClick={() => navigate('/tools')}
+            type="button"
+          >
+            ← Back
+          </button>
           <span style={mutedStyle}>Template name</span>
           <input
             value={templateName}
@@ -929,6 +938,7 @@ function TemplateBuilderApp() {
           />
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          
           <button style={buttonStyle} onClick={zoomOut} type="button">
             -
           </button>
@@ -1988,7 +1998,7 @@ function formatSeconds(value) {
 function TemplateBuilder() {
   return (
     <div className="min-h-screen bg-slate-50 md:flex">
-      <Sidebar />
+
       <main className="flex-1 min-w-0">
       
         <div className="p-0 md:p-6">
