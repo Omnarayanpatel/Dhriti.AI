@@ -167,7 +167,7 @@ function Projects() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                   {rows.map(project => (
-                    <tr key={project.id} className="hover:bg-green-50">
+                    <tr key={project.id} className="hover:bg-green-50" >
                       <td className="p-4">
                         <div className="flex items-center gap-3">
                           <button
@@ -203,15 +203,16 @@ function Projects() {
                         <div className="flex justify-end gap-2">
                           <button
                             type="button"
+                            title="view"
                             onClick={() =>
                               navigate(`/projects/${project.id}/board/task`, {
                                 state: { project },
                               })
                             }
-                            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600"
-                          >
-                            View board
-                          </button>
+                            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-slate-200 disabled:hover:text-slate-600"
+                            >
+                              view
+                            </button>
                           <button
                             type="button"
                             title={project.has_template ? 'Assign project to a user' : 'A template must be created before assigning'}
@@ -221,13 +222,7 @@ function Projects() {
                           >
                             Assign
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => navigate(`/qc/project/${project.id}`)}
-                            className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 transition hover:border-amber-500 hover:bg-amber-100"
-                          >
-                            Review
-                          </button>
+                      
                         </div>
                       </td>
                     </tr>

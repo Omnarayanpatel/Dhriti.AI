@@ -81,6 +81,14 @@ function App() {
         }
       />
       <Route
+        path="/projects/edit/:id"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AddProject />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/tasks"
         element={
         <ProtectedRoute allowedRoles={['user', 'expert', 'vendor', 'admin']}>

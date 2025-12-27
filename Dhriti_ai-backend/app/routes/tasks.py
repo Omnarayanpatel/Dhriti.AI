@@ -52,6 +52,25 @@ class AutoTemplateRequest(BaseModel):
     rules: List[MappingRule]
     labels: Optional[List[Dict[str, Any]]] = None
 
+class ProjectEditRequest(BaseModel):
+    name: Optional[str] = None
+    status: Optional[ProjectStatus] = None
+    description: Optional[str] = None
+    data_category: Optional[str] = None
+    project_type: Optional[str] = None
+    task_type: Optional[str] = None
+    default_avg_task_time_minutes: Optional[float] = None
+    review_time_minutes: Optional[float] = None
+    max_users_per_task: Optional[int] = None
+    association: Optional[str] = None
+    auto_submit_task: Optional[bool] = None
+    allow_reviewer_edit: Optional[bool] = None
+    allow_reviewer_push_back: Optional[bool] = None
+    allow_reviewer_feedback: Optional[bool] = None
+    reviewer_screen_mode: Optional[str] = None
+    reviewer_guidelines: Optional[str] = None
+    client_id: Optional[int] = None
+
 # --- New Pydantic Model for a single ProjectTask ---
 class ProjectTaskResponse(BaseModel):
     id: UUID
@@ -423,6 +442,112 @@ def list_projects(
         result.append(ProjectResponse(**response_data))
 
     return result
+
+@router.put("/admin/projects/{project_id}", response_model=ProjectResponse)
+def edit_project(
+    project_id: int,
+    payload: ProjectEditRequest,
+    _: TokenData = Depends(require_admin),
+    db: Session = Depends(database.get_db),
+):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if payload.name and payload.name != project.name:
+        existing = db.query(Project).filter(Project.name == payload.name).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Project with this name already exists")
+        project.name = payload.name
+
+    if payload.status is not None:
+        project.status = payload.status
+    if payload.description is not None:
+        project.description = payload.description
+    if payload.data_category is not None:
+        project.data_category = payload.data_category
+    if payload.project_type is not None:
+        project.project_type = payload.project_type
+    if payload.task_type is not None:
+        project.task_type = payload.task_type
+    if payload.default_avg_task_time_minutes is not None:
+        project.default_avg_task_time_minutes = payload.default_avg_task_time_minutes
+    if payload.review_time_minutes is not None:
+        project.review_time_minutes = payload.review_time_minutes
+    if payload.max_users_per_task is not None:
+        project.max_users_per_task = payload.max_users_per_task
+    if payload.association is not None:
+        project.association = payload.association
+    if payload.auto_submit_task is not None:
+        project.auto_submit_task = payload.auto_submit_task
+    if payload.allow_reviewer_edit is not None:
+        project.allow_reviewer_edit = payload.allow_reviewer_edit
+    if payload.allow_reviewer_push_back is not None:
+        project.allow_reviewer_push_back = payload.allow_reviewer_push_back
+    if payload.allow_reviewer_feedback is not None:
+        project.allow_reviewer_feedback = payload.allow_reviewer_feedback
+    if payload.reviewer_screen_mode is not None:
+        project.reviewer_screen_mode = payload.reviewer_screen_mode
+    if payload.reviewer_guidelines is not None:
+        project.reviewer_guidelines = payload.reviewer_guidelines
+    
+    if payload.client_id is not None:
+        project.client_id = payload.client_id if payload.client_id > 0 else None
+
+    db.commit()
+    db.refresh(project)
+
+    create_audit_log(
+        db,
+        user=_,
+        action="UPDATE_PROJECT",
+        target_entity="Project",
+        target_id=str(project.id),
+    )
+
+    # Re-use list logic to populate computed fields for response
+    total_tasks_added = project.total_tasks_added or 0
+    total_tasks_completed = project.total_tasks_completed or 0
+    has_template = db.query(ProjectTemplate).filter(ProjectTemplate.project_id == project.id).first() is not None
+    client_email = None
+    if project.client_id:
+        client = db.query(User).filter(User.id == project.client_id).first()
+        if client:
+            client_email = client.email
+
+    response_payload = ProjectResponse.from_orm(project).copy(
+        update={
+            "total_tasks_added": total_tasks_added,
+            "total_tasks_completed": total_tasks_completed,
+            "has_template": has_template,
+        }
+    )
+    response_data = response_payload.model_dump()
+    response_data["client_email"] = client_email
+    
+    return ProjectResponse(**response_data)
+
+@router.delete("/admin/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_project(
+    project_id: int,
+    _: TokenData = Depends(require_admin),
+    db: Session = Depends(database.get_db),
+):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    target_id = str(project.id)
+    db.delete(project)
+    db.commit()
+
+    create_audit_log(
+        db,
+        user=_,
+        action="DELETE_PROJECT",
+        target_entity="Project",
+        target_id=target_id,
+    )
 
 @router.post("/admin/projects/{project_id}/increment-tasks", status_code=status.HTTP_204_NO_CONTENT)
 def increment_project_tasks(

@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import Sidebar from '../components/Sidebar.jsx'
 import Topbar from '../components/Topbar.jsx'
 import { getToken } from '../utils/auth.js'
-import { CheckSquare, Trash2, X } from 'lucide-react'
+import { CheckSquare, Trash2, X, Edit } from 'lucide-react'
 
 const API_BASE = 'http://localhost:8000'
 
@@ -292,6 +292,13 @@ export default function ProjectTaskBoard() {
                 <span className="rounded-full bg-emerald-50 px-4 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-600">
                   {projectStatus}
                 </span>
+                <button
+                  onClick={() => navigate(`/projects/edit/${projectId}`)}
+                  className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600"
+                >
+                  <Edit size={14} />
+                  Edit Project
+                </button>
               </div>
 
               <div className="border-b border-slate-200">

@@ -185,6 +185,20 @@ function TaskTemplatePlayer() {
       return;
     }
 
+    const inputTypes = ['Options4', 'Options5', 'RadioButtons', 'Checkbox', 'Comments', 'Questions'];
+    const hasMissingInput = blocks.some(block => {
+      if (!inputTypes.includes(block.type)) return false;
+      const val = annotations[block.id];
+      if (val === undefined || val === null || val === '') return true;
+      if (Array.isArray(val) && val.length === 0) return true;
+      return false;
+    });
+
+    if (hasMissingInput) {
+      setSubmitStatus({ message: 'Please complete all fields before submitting.', type: 'error' });
+      return;
+    }
+
     const token = getToken();
     if (!token) {
       setError('Your session has expired. Please log in again to submit.');
@@ -720,7 +734,7 @@ function PerformableBlock({ block, resolve, annotations, onAnnotationChange, onS
               </button>
               <button
                 type="button"
-                
+                onClick={onSubmit}
                 className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
               >
                 No, Submit
