@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import Sidebar from '../components/Sidebar.jsx';
 import Topbar from '../components/Topbar.jsx';
 import { getToken } from "../utils/auth.js";
@@ -31,7 +31,8 @@ const API_BASE = 'http://localhost:8000';
 
 export default function TextAnnotationPage() {
   const navigate = useNavigate();
-  const { id: taskId } = useParams(); // Correctly get the 'id' param and rename it to taskId
+  const { id: taskId } = useParams();
+  const [searchParams] = useSearchParams();
   // tasks + navigation
   const [tasks, setTasks] = useState(() => {
     const s = localStorage.getItem("tat_tasks_v4");
@@ -84,6 +85,7 @@ export default function TextAnnotationPage() {
   const [view, setView] = useState("annotate"); // annotate | saved
   const [toast, setToast] = useState(null);
   const [tasksLoading, setTasksLoading] = useState(true);
+  const [submissionStatus, setSubmissionStatus] = useState(null);
   const fileInputRef = useRef(null);
   const [tasksError, setTasksError] = useState(null);
 
@@ -106,6 +108,8 @@ export default function TextAnnotationPage() {
   );
   const [mappingLoading, setMappingLoading] = useState(false);
   const [mappingError, setMappingError] = useState('');
+
+  const isQCMode = searchParams.get('mode') === 'qc';
 
   useEffect(() => {
     const fetchSingleTask = async (id) => {
@@ -166,6 +170,11 @@ export default function TextAnnotationPage() {
           const processedTask = { ...data.task, title: taskTitle, text: taskText };
           setTasks([processedTask]);
           setIndex(0);
+
+          // If in QC mode, and there's existing annotations, load them
+          if (isQCMode && data.annotations) {
+            setAnnotationsMap(prev => ({ ...prev, [data.task.id]: data.annotations }));
+          }
           if (data.annotations) {
             setAnnotationsMap(prev => ({ ...prev, [data.task.id]: data.annotations }));
           }
@@ -207,7 +216,7 @@ export default function TextAnnotationPage() {
         setTasksLoading(false);
       }
     }
-  }, [taskId]);
+  }, [taskId, isQCMode]); // Add isQCMode to dependencies
 
   useEffect(() => {
     // This effect is now separate to avoid re-running fetches on every annotation change.
@@ -394,6 +403,62 @@ export default function TextAnnotationPage() {
     setNewLabelText("");
     showToast("Custom label added");
   }
+  const handleSubmitAndNext = async () => {
+    const token = getToken();
+    if (!token || !taskId || !task) {
+      alert('Cannot submit: Missing token, task ID, or task data.');
+      return;
+    }
+
+    setSubmissionStatus('submitting');
+    const payload = {
+      task_id: task.task_id, // The backend now expects the string task_id in the payload
+      project_id: task.project_id,
+      annotations: annotationsMap[task.id] || [],
+      ...(metaMap[task.id] && { meta: metaMap[task.id] }),
+      ...(task.template_id && { template_id: task.template_id }),
+    };
+
+    try {
+      // 1. Submit annotations for the current task
+      const submitResponse = await fetch(`${API_BASE}/text/${taskId}/annotations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+
+      if (!submitResponse.ok) {
+        const errData = await submitResponse.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Failed to submit annotations.');
+      }
+
+      setSubmissionStatus('success');
+
+      // 2. Fetch the next task for the same project
+      const nextTaskResponse = await fetch(`${API_BASE}/text/projects/${task.project_id}/next-task`, {
+        method: 'POST', // The endpoint expects a POST request
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!nextTaskResponse.ok) {
+        setSubmissionStatus('complete');
+        setTimeout(() => navigate('/tasks'), 2500); // Redirect to dashboard after completion
+        return;
+      }
+
+      const nextTaskData = await nextTaskResponse.json();
+      if (nextTaskData?.id) {
+        navigate(`/tools/text-annotator/${nextTaskData.id}`);
+        setSubmissionStatus(null);
+      } else {
+        setSubmissionStatus('complete');
+        setTimeout(() => navigate('/tasks'), 2500);
+      }
+    } catch (err) {
+      setSubmissionStatus(null);
+      showToast(`Submission failed: ${err.message || 'An unknown error occurred.'}`, 3000);
+    }
+  };
 
   /* -------- Grammar (LanguageTool) -------- */
   async function runGrammarCheck() {
@@ -642,7 +707,7 @@ export default function TextAnnotationPage() {
   /* ---------- JSX ---------- */
 
   // Early return for loading or error states to prevent rendering with undefined task
-  if (tasksLoading) {
+  if (tasksLoading || (isQCMode && !task)) { // If in QC mode, wait for task to load
     return <div className="min-h-screen bg-gray-100 flex items-center justify-center">Loading task...</div>;
   }
   if (tasksError) {
@@ -664,16 +729,24 @@ export default function TextAnnotationPage() {
           </div>
 
           <div className="flex gap-2 items-center">
-            <button onClick={() => navigate(-1)} className="px-3 py-2 rounded text-sm bg-white border text-gray-700 hover:bg-gray-50">Back to Dashboard</button>
-            <button onClick={() => setView("annotate")} className={`px-3 py-2 rounded text-sm ${view === "annotate" ? "bg-indigo-600 text-white" : "bg-white border"}`}>Annotate</button>
-            <button onClick={() => setView("saved")} className={`px-3 py-2 rounded text-sm ${view === "saved" ? "bg-indigo-600 text-white" : "bg-white border"}`}>View Saved</button>
-            {!taskId && (
-              <><input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".json,.txt,.csv" className="hidden" /><button onClick={() => fileInputRef.current.click()} className="px-3 py-2 rounded text-sm bg-white border">Upload File</button></>
+            {taskId && !isQCMode ? ( // Only show submit button if it's an annotator working on a task
+              <button onClick={handleSubmitAndNext} className="px-4 py-2 rounded bg-green-600 text-white text-sm" disabled={submissionStatus}>
+                {submissionStatus === 'submitting' ? 'Submitting...' : 'Submit & Next'}
+              </button>
+            ) : (
+              <>
+                <button onClick={() => navigate(-1)} className="px-3 py-2 rounded text-sm bg-white border text-gray-700 hover:bg-gray-50">Back to Dashboard</button>
+                <button onClick={() => setView("annotate")} className={`px-3 py-2 rounded text-sm ${view === "annotate" ? "bg-indigo-600 text-white" : "bg-white border"}`}>Annotate</button>
+                <button onClick={() => setView("saved")} className={`px-3 py-2 rounded text-sm ${view === "saved" ? "bg-indigo-600 text-white" : "bg-white border"}`}>View Saved</button>
+                <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".json,.txt,.csv" className="hidden" />
+                <button onClick={() => fileInputRef.current.click()} className="px-3 py-2 rounded text-sm bg-white border">Upload File</button>
+                <button onClick={() => setShowMappingModal(true)} className="px-3 py-2 rounded text-sm bg-white border">Map Data</button>
+                {isQCMode && (
+                  <button onClick={() => navigate(-1)} className="px-3 py-2 rounded text-sm bg-white border text-gray-700 hover:bg-gray-50">Back to QC</button>
+                )}
+
+              </>
             )}
-            <button 
-              onClick={() => setShowMappingModal(true)}
-              className="px-3 py-2 rounded text-sm bg-white border"
-            >Map Data</button>
           </div>
         </header>
 
@@ -690,9 +763,9 @@ export default function TextAnnotationPage() {
                     </div>
                   </div>
 
-                  <div className="flex gap-2">
-                    <button disabled={index === 0 || !!taskId} onClick={() => { if (index > 0) setIndex(index - 1); }} className="px-3 py-1 border rounded text-sm disabled:opacity-50">Prev</button>
-                    <button disabled={index === tasks.length - 1 || !!taskId} onClick={() => { if (index < tasks.length - 1) setIndex(index + 1); }} className="px-3 py-1 border rounded text-sm disabled:opacity-50">Next</button>
+                  <div className="flex gap-2"> {/* Navigation buttons for multi-task mode */}
+                    <button disabled={index === 0 || !!taskId || isQCMode} onClick={() => { if (index > 0) setIndex(index - 1); }} className="px-3 py-1 border rounded text-sm disabled:opacity-50">Prev</button>
+                    <button disabled={index === tasks.length - 1 || !!taskId || isQCMode} onClick={() => { if (index < tasks.length - 1) setIndex(index + 1); }} className="px-3 py-1 border rounded text-sm disabled:opacity-50">Next</button>
                   </div>
                 </div>
 
@@ -708,7 +781,8 @@ export default function TextAnnotationPage() {
                       <div className="text-sm text-gray-700">{selection ? selection.text : "Select text to label or check grammar"}</div>
                     </div>
 
-                    {/* Grammar panel */}
+                {/* Grammar panel - Admin only */}
+                {!taskId && !isQCMode && ( // Only show grammar if not in single task mode or QC mode
                     <div className="mt-4">
                       <div className="flex items-center justify-between mb-2">
                         <div className="text-sm font-medium">Grammar</div>
@@ -759,6 +833,7 @@ export default function TextAnnotationPage() {
                         </div>
                       )}
                     </div>
+                )}
                   </div>
 
                   {/* right controls */}
@@ -773,7 +848,7 @@ export default function TextAnnotationPage() {
                     </div>
 
                     <div className="p-3 bg-white rounded border mb-4">
-                      <div className="text-sm font-medium mb-2">Label</div>
+                      <div className="text-sm font-medium mb-2">Label {isQCMode && "(QC Edit)"}</div>
                       <select value={chosenLabel} onChange={(e) => setChosenLabel(e.target.value)} className="w-full border rounded px-2 py-1 text-sm mb-2">
                         <option value="">Select label</option>
                         {labels.map((l, i) => <option key={i} value={l}>{l}</option>)}
@@ -785,13 +860,13 @@ export default function TextAnnotationPage() {
                           <button onClick={() => addCustomLabel()} className="px-3 py-1 bg-indigo-600 text-white rounded text-sm">Add</button>
                         </div>
                       )}
-                      <div className="mt-3">
+                      <div className="mt-3"> {/* Disable apply/cancel if not in QC mode and not in single task mode */}
                         <button onClick={() => applyLabel()} className="w-full px-3 py-2 bg-green-600 text-white rounded text-sm">Apply Label</button>
                         <button onClick={() => clearSelection()} className="w-full mt-2 px-3 py-2 border rounded text-sm">Cancel</button>
                       </div>
                     </div>
 
-                    <div className="p-3 bg-white rounded border mb-4">
+                    <div className="p-3 bg-white rounded border mb-4"> {/* Disable if not in QC mode and not in single task mode */}
                       <div className="text-sm font-medium mb-2">Sentiment</div>
                       <div className="flex gap-2 flex-wrap">
                         {sentiments.map(s => (
@@ -800,7 +875,7 @@ export default function TextAnnotationPage() {
                       </div>
                     </div>
 
-                    <div className="p-3 bg-white rounded border">
+                    <div className="p-3 bg-white rounded border"> {/* Disable if not in QC mode and not in single task mode */}
                       <div className="text-sm font-medium mb-2">Emotion</div>
                       <select value={currentMeta.emotion || ""} onChange={(e) => setEmotionForCurrent(e.target.value)} className="w-full border rounded px-2 py-1 text-sm">
                         <option value="">Select emotion</option>
@@ -812,6 +887,7 @@ export default function TextAnnotationPage() {
               </div>
 
               {/* bottom row */}
+              {!taskId && !isQCMode && ( // Only show save/export if not in single task mode or QC mode
               <div className="flex items-center justify-between gap-3 mb-6">
                 <div className="text-sm text-gray-600">Saved annotations: {(annotationsMap[task.id] || []).length}</div>
                 <div className="flex items-center gap-3">
@@ -819,6 +895,7 @@ export default function TextAnnotationPage() {
                   <button onClick={() => exportCurrent()} className="px-3 py-2 border rounded">Export</button>
                 </div>
               </div>
+              )}
             </main>
 
             {/* right panel: structured annotations */}
@@ -867,6 +944,7 @@ export default function TextAnnotationPage() {
                 </div>
               </div>
 
+              {!taskId && !isQCMode && ( // Only show saved records if not in single task mode or QC mode
               <div className="bg-white rounded-xl p-4 border">
                 <div className="flex items-center justify-between mb-2">
                   <div>
@@ -902,6 +980,7 @@ export default function TextAnnotationPage() {
                   ))}
                 </div>
               </div>
+              )}
             </aside>
           </div>
         ) : (
@@ -1086,7 +1165,7 @@ export default function TextAnnotationPage() {
         )}
 
         {/* floating toolbar */}
-        {selection && floatingPos && (
+        {selection && floatingPos && !isQCMode && ( // Disable floating toolbar in QC mode
           <div style={{ position: "absolute", left: floatingPos.x, top: floatingPos.y }} className="z-50">
             <div className="bg-white border rounded shadow p-2 flex gap-2 items-center">
               <div className="text-sm text-gray-700 px-2 max-w-xs overflow-hidden whitespace-nowrap text-ellipsis">{selection.text}</div>

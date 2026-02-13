@@ -1,108 +1,118 @@
-import React, { useState } from 'react';
-import { NavLink } from 'react-router-dom';
-import { getUserRole } from '../utils/auth';
+import React, { useState } from "react";
+import { NavLink } from "react-router-dom";
+import { getUserRole } from "../utils/auth";
+
+// lucide icons
+import {
+  Bell,
+  Home,
+  BarChart2,
+  ClipboardList,
+  PlayCircle,
+  LogOut,
+  User,
+  FileUp
+} from "lucide-react";
 
 function Sidebar() {
-  const [open, setOpen] = useState(() => {
-    if (typeof window === 'undefined') {
-      return true;
-    }
-    return window.innerWidth >= 768; // Default to open on desktop
-  });
+  const [isHovering, setIsHovering] = useState(false);
   const userRole = getUserRole();
 
   const handleNavClick = () => {
-    if (typeof window !== 'undefined' && window.innerWidth < 768) {
-      setOpen(false);
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      // mobile behaviour
     }
   };
 
-  const handleLogoutClick = () => {
-    // This should be expanded to call your logout utility
-    // For now, it just handles the navigation click
-    handleNavClick();
-  };
-
-  const navItem = ({ to, label, isLogout = false }) => (
+  const navItem = ({ to, icon, label }) => (
     <NavLink
       to={to}
-      className={({ isActive }) =>
-        `flex items-center gap-3 px-4 py-2 rounded-lg transition hover:bg-slate-100 ${isActive ? 'bg-slate-100 text-brand-700' : 'text-slate-700'}`
-      }
-      onClick={isLogout ? handleLogoutClick : handleNavClick}
+      className="flex items-center gap-3 w-full px-4 h-12 rounded-xl transition-all 
+                 duration-300 text-white hover:bg-white/20"
+      onClick={handleNavClick}
     >
-      <span>{label}</span>
+      {/* ICON ALWAYS VISIBLE */}
+      <span className="w-6 flex justify-center">{icon}</span>
+
+      {/* TEXT ONLY VISIBLE ON HOVER */}
+      <span
+        className={`text-sm font-medium whitespace-nowrap transition-all duration-300
+          ${isHovering ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-2 pointer-events-none"}
+        `}
+      >
+        {label}
+      </span>
     </NavLink>
   );
 
   return (
-    <aside className="">
-      {/* Mobile header */}
-      <div className="md:hidden sticky top-0 z-30 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-brand-600 text-white grid place-items-center font-bold">D</div>
-          <span className="font-semibold">Dhritii.AI</span>
+    <aside
+      onMouseEnter={() => setIsHovering(true)}
+      onMouseLeave={() => setIsHovering(false)}
+      className={`h-[42rem]  mt-6 ml-6 bg-green-800 rounded-3xl py-6 flex flex-col justify-between shadow-xl hover:bg-green-600
+        transition-all duration-300
+        ${isHovering ? "w-56" : "w-20"}`}
+    >
+      {/* Top Bell Section */}
+      <div className="flex flex-col gap-6 mt-2 w-full">
+        <div className="flex items-center gap-3 w-full px-4">
+          <div className="w-12 h-12 flex items-center justify-center rounded-xl bg-white/20 text-white">
+            <Bell size={22} />
+          </div>
+
+          <span
+            className={`text-sm font-medium text-white transition-all duration-300
+              ${isHovering ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-2 pointer-events-none"}
+            `}
+          >
+            Notifications
+          </span>
         </div>
-        <button onClick={() => setOpen((v) => !v)} className="p-2 rounded-lg hover:bg-slate-100">☰</button>
+
+        {/* Navigation */}
+        <div className="flex flex-col items-start gap-3 mt-3 w-full">
+          {navItem({ to: "/dashboard", icon: <Home size={22} />, label: "Dashboard" })}
+
+          {userRole === "admin" && (
+            <>
+              {navItem({ to: "/projects", icon: <BarChart2 size={22} />, label: "Projects" })}
+              {navItem({ to: "/tools", icon: <ClipboardList size={22} />, label: "Tools" })}
+              {navItem({
+                to: "/tools/download-outputs",
+                icon: <PlayCircle size={22} />,
+                label: "Reports"
+              })}
+              {navItem({ to: "/tools/client-uploads", icon: <FileUp size={22} />, label: "client's uploads" })}
+            </>
+          )}
+
+          {userRole !== "admin" && (
+            <>
+              {navItem({ to: "/projects", icon: <BarChart2 size={22} />, label: "Projects" })}
+              {navItem({ to: "/projects", icon: <PlayCircle size={22} />, label: "Tasks" })}
+            </>
+          )}
+
+          {navItem({ to: "/profile-selection", icon: <User size={22} />, label: "Profile" })}
+        </div>
       </div>
 
-      {/* Desktop header */}
-      <div className="hidden md:flex sticky top-0 z-20 items-center justify-between bg-white border-b border-slate-200 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-lg bg-brand-600 text-white grid place-items-center font-bold">D</div>
-          <span className="font-semibold">Dhritii.AI</span>
-        </div>
-        <button
-          onClick={() => setOpen((v) => !v)}
-          className="flex items-center justify-center w-10 h-10 rounded-lg border border-slate-200 hover:bg-slate-50 transition text-lg"
-          type="button"
+      {/* Logout */}
+      <div className="mb-3 w-full">
+        <NavLink
+          to="/login"
+          className="flex items-center gap-3 w-full px-4 h-12 rounded-xl bg-white/20 text-white
+                     hover:bg-white/30 transition-all duration-300"
         >
-          {open ? '⏴' : '⏵'}
-        </button>
-      </div>
-
-      {/* Sidebar */}
-      <div
-        className={`transition-all duration-200 bg-white md:min-h-screen md:sticky md:top-[64px] ${
-          open
-            ? 'w-full md:w-64 border-r border-slate-200 p-4 space-y-4 block'
-            : 'hidden md:hidden w-full md:w-0 border-r border-transparent p-0 space-y-0'
-        }`}
-      >
-        <nav className="space-y-1">
-          {navItem({ to: '/dashboard', label: 'Dashboard' })}
-          {userRole === 'admin' && (
-            <details className="group">
-              <summary className="list-none cursor-pointer">
-                <div className="flex items-center gap-3 px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100">Users</div>
-              </summary>
-              <div className="mt-1 ml-4 space-y-1">
-                {navItem({ to: '/users/admins', label: 'Admins' })}
-                {navItem({ to: '/users/experts', label: 'Experts' })}
-                {navItem({ to: '/users/vendors', label: 'Vendors' })}
-                {navItem({ to: '/users/clients', label: 'Clients' })}
-              </div>
-            </details>
-          )}
-          {userRole === 'admin' && (
-            <details className="group">
-              <summary className="list-none cursor-pointer">
-                <div className="flex items-center gap-3 px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100">Tools</div>
-              </summary>
-              <div className="mt-1 ml-4 space-y-1">
-                {navItem({ to: '/tools/template-builder', label: 'Template Builder' })}
-                {navItem({ to: '/tools/json-to-excel', label: 'Task Import Pipeline' })}
-                {navItem({ to: '/tools/client-uploads', label: 'Client Uploads' })}
-                {navItem({ to: '/tools/image-annotator', label: 'Image Annotator' })}
-                {navItem({ to: '/tools/text-annotator', label: 'Text Annotator' })}
-                {navItem({ to: '/tools/download-outputs', label: 'Download Outputs' })}
-                
-              </div>
-            </details>
-          )}
-          {navItem({ to: '/projects', label: 'Projects' })}
-          {navItem({ to: '/login', label: 'Logout', isLogout: true })}
-        </nav>
+          <span className="w-6 flex justify-center"><LogOut size={22} /></span>
+          <span
+            className={`text-sm font-medium transition-all duration-300
+              ${isHovering ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-2 pointer-events-none"}
+            `}
+          >
+            Logout
+          </span>
+        </NavLink>
       </div>
     </aside>
   );

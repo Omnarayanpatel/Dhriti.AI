@@ -28,6 +28,7 @@ class TaskPayload(BaseModel):
 class TemplatePayload(BaseModel):
     id: UUID
     layout: List[Dict[str, Any]]
+    labels: Optional[List[Dict[str, Any]]] = None
 
     class Config:
         from_attributes = True

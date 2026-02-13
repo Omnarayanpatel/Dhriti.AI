@@ -184,6 +184,33 @@ export default function Tasks() {
       } catch (err) {
         setStartError(err.message);
       }
+    } else if (assignment.data_category === 'video') {
+      const token = getToken();
+      try {
+        const response = await fetch(`${API_BASE}/tasks/projects/${assignment.project_id}/next-task`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (response.status === 404) {
+          setStartError('No available tasks for this project right now. Please try again later.');
+          return;
+        }
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || 'Could not get the next task.');
+        }
+
+        const task = await response.json();
+        if (task && task.id) {
+          // We got a specific task ID, navigate to the video annotator.
+          navigate(`/tools/video-annotator/${task.id}`);
+        } else {
+          throw new Error('Received an invalid response from the server.');
+        }
+      } catch (err) {
+        setStartError(err.message);
+      }
     } else {
       // For all other task types, use the generic template player.
       navigate(`/templates/${assignment.template_id}/play`);
@@ -228,7 +255,7 @@ export default function Tasks() {
                   <thead className="bg-slate-50 text-left text-slate-600">
                     <tr>
                       <th className="p-3 font-medium">Project</th>
-                      <th className="p-3 font-medium">Avg task time</th>
+                      {/* <th className="p-3 font-medium">Avg task time</th> */}
                       <th className="p-3 font-medium">Rating</th>
                       <th className="p-3 font-medium">Completed</th>
                       <th className="p-3 font-medium">Pending</th>
@@ -245,17 +272,17 @@ export default function Tasks() {
                         <td className="p-3">
                           <div className="flex items-center gap-2">
                             <span className="rounded-md border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-600">
-                              {p.assignment_id}
+                              {"#"}
                             </span>
                             <div className="font-medium">{p.project_name}</div>
                           </div>
                         </td>
-                        <td className="p-3">
+                        {/* <td className="p-3">
                           {p.avg_task_time_label ||
                             (p.avg_task_time_minutes
                               ? `${p.avg_task_time_minutes} minutes`
                               : '—')}
-                        </td>
+                        </td> */}
                         <td className="p-3">
                           <RatingBadge rating={p.rating} />
                         </td>

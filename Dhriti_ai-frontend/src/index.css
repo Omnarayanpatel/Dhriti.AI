@@ -23,3 +23,26 @@ body.canvas-only .app {
 body.canvas-only .app .stage {
     height: calc(100vh - 56px) !important;
 }
+
+/* index.css (place after Tailwind's @tailwind base/components/utilities) */
+
+/* Firefox */
+.TeamCollabScroller {
+    scrollbar-width: none;       /* hides scrollbar in Firefox */
+    -ms-overflow-style: none;    /* hides scrollbar in IE 10+ / old Edge */
+  }
+  
+  /* WebKit browsers (Chrome, Safari, new Edge) */
+  .TeamCollabScroller::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+  
+  /* optional: ensure track/thumb are transparent if width:0 isn't enough */
+  .TeamCollabScroller::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .TeamCollabScroller::-webkit-scrollbar-thumb {
+    background: transparent;
+  }
+  

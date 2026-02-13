@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import Sidebar from '../components/Sidebar.jsx'
 import Topbar from '../components/Topbar.jsx'
 import Modal from '../components/Modal.jsx'
-import FileUpload from '../components/FileUpload.jsx'
 import { getToken } from '../utils/auth.js'
 
 const API_BASE = 'http://localhost:8000'
@@ -13,7 +12,6 @@ function Projects() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const [uploadOpen, setUploadOpen] = useState(false)
   const [assignOpen, setAssignOpen] = useState(false)
   const [assignError, setAssignError] = useState('')
   const [selectedProject, setSelectedProject] = useState(null)
@@ -57,7 +55,7 @@ function Projects() {
     }
 
     loadProjects()
-  }, [])
+  }, [navigate])
 
   const openAssignModal = async project => {
     setSelectedProject(project)
@@ -98,9 +96,6 @@ function Projects() {
     const payload = {
       user_id: Number(f.get('user_id')),
       project_id: selectedProject.id,
-      status: f.get('status') || undefined,
-      avg_task_time_minutes: f.get('avg_time') ? Number(f.get('avg_time')) : undefined,
-      completed_tasks: f.get('completed') ? Number(f.get('completed')) : undefined,
       total_task_assign: f.get('total_assign') ? Number(f.get('total_assign')) : undefined,
     }
 
@@ -145,7 +140,7 @@ function Projects() {
             </div>
             <div className="flex gap-2">
               <button onClick={() => navigate('/tools/json-to-excel')} className="px-3 py-2 rounded-lg border hover:bg-slate-50">Upload Data</button>
-              <button onClick={() => navigate('/projects/new')} className="px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700">+ New Project</button>
+              <button onClick={() => navigate('/projects/new')} className="px-3 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700">+ New Project</button>
             </div>
           </div>
 
@@ -172,7 +167,7 @@ function Projects() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                   {rows.map(project => (
-                    <tr key={project.id} className="hover:bg-slate-50">
+                    <tr key={project.id} className="hover:bg-green-50" >
                       <td className="p-4">
                         <div className="flex items-center gap-3">
                           <button
@@ -208,22 +203,26 @@ function Projects() {
                         <div className="flex justify-end gap-2">
                           <button
                             type="button"
+                            title="view"
                             onClick={() =>
                               navigate(`/projects/${project.id}/board/task`, {
                                 state: { project },
                               })
                             }
-                            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600"
-                          >
-                            View board
-                          </button>
+                            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-slate-200 disabled:hover:text-slate-600"
+                            >
+                              view
+                            </button>
                           <button
                             type="button"
+                            title={project.has_template ? 'Assign project to a user' : 'A template must be created before assigning'}
                             onClick={() => openAssignModal(project)}
-                            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600"
+                            disabled={!project.has_template}
+                            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-500 hover:text-brand-600 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-slate-200 disabled:hover:text-slate-600"
                           >
                             Assign
                           </button>
+                      
                         </div>
                       </td>
                     </tr>
@@ -264,28 +263,9 @@ function Projects() {
                     ))}
                 </select>
               </div>
-              <div className="grid sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm mb-1">Status</label>
-                  <select name="status" className="w-full px-3 py-2 rounded-lg border">
-                    <option value="">Use project default</option>
-                    <option value="Active">Active</option>
-                    <option value="Paused">Paused</option>
-                    <option value="Completed">Completed</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm mb-1">Avg Task Time (minutes)</label>
-                  <input name="avg_time" type="number" min="1" className="w-full px-3 py-2 rounded-lg border" placeholder={selectedProject?.default_avg_task_time_minutes || 'Optional'} />
-                </div>
-                <div>
-                  <label className="block text-sm mb-1">Completed Tasks</label>
-                  <input name="completed" type="number" min="0" className="w-full px-3 py-2 rounded-lg border" placeholder="Optional" />
-                </div>
-                <div>
-                  <label className="block text-sm mb-1">Total Tasks to Assign</label>
-                  <input name="total_assign" type="number" min="0" className="w-full px-3 py-2 rounded-lg border" placeholder="Optional" />
-                </div>
+              <div>
+                <label className="block text-sm mb-1">Total Tasks to Assign</label>
+                <input name="total_assign" type="number" min="0" className="w-full px-3 py-2 rounded-lg border" placeholder="Optional" />
               </div>
               <div className="flex justify-end gap-2">
                 <button
@@ -304,9 +284,6 @@ function Projects() {
             </form>
           </Modal>
 
-          <Modal title="Upload Data" isOpen={uploadOpen} onClose={() => setUploadOpen(false)} size="lg">
-            <FileUpload onFileSelected={() => {}} />
-          </Modal>
         </div>
       </main>
     </div>

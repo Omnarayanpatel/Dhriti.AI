@@ -19,6 +19,15 @@ import VideoAnnotator from './pages/VideoAnnotation.jsx';
 
 import ClientUploads from './pages/ClientUploads.jsx';
 import TextAnnotator from './pages/TextAnnotation.jsx';
+import VideoAnnotation from './pages/VideoAnnotation.jsx';
+import QCReviewPage from './pages/QCReviewPage.jsx';
+// Import the new QC detail pages
+import QCImageReview from './pages/QCImageReview.jsx';
+import QCTextReview from './pages/QCTextReview.jsx';
+import QCAudioReview from './pages/QCAudioReview.jsx';
+import QCVideoReview from './pages/QCVideoReview.jsx';
+import ToolsOverview from './pages/ToolsOverview.jsx';
+import ProfilePage from './pages/ProfilePage.jsx';
 
 function App() {
   return (
@@ -67,6 +76,14 @@ function App() {
       />
       <Route
         path="/projects/new"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AddProject />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/projects/edit/:id"
         element={
           <ProtectedRoute allowedRoles={['admin']}>
             <AddProject />
@@ -163,6 +180,65 @@ function App() {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/qc/project/:projectId"
+        element={
+          <ProtectedRoute allowedRoles={['admin', 'reviewer']}>
+            <QCReviewPage />
+          </ProtectedRoute>
+        }
+      />
+      {/* New QC Detail Routes */}
+      <Route
+        path="/qc/image-review/:taskId"
+        element={
+          <ProtectedRoute allowedRoles={['admin', 'reviewer']}>
+            <QCImageReview />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/qc/text-review/:taskId"
+        element={
+          <ProtectedRoute allowedRoles={['admin', 'reviewer']}>
+            <QCTextReview />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/qc/audio-review/:taskId"
+        element={
+          <ProtectedRoute allowedRoles={['admin', 'reviewer']}>
+            <QCAudioReview />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/qc/video-review/:taskId"
+        element={
+          <ProtectedRoute allowedRoles={['admin', 'reviewer']}>
+            <QCVideoReview />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tools"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <ToolsOverview />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/profile-selection"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <ProfilePage/>
+          </ProtectedRoute>
+        }
+      />
+      
+      
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

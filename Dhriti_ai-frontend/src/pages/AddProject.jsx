@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import Sidebar from '../components/Sidebar.jsx'
 import Topbar from '../components/Topbar.jsx'
 import { getToken } from '../utils/auth.js'
 import { Listbox, ListboxButton, ListboxOption, ListboxOptions } from '@headlessui/react'
+import DeleteConfirmationModal from '../components/DeleteConfirmationModal.jsx'
+import { Trash2, Save } from 'lucide-react'
 
 const API_BASE = 'http://localhost:8000'
 
@@ -18,6 +20,7 @@ const initialForm = {
   reviewTime: '',
   maxUsers: '',
   association: 'Admin',
+  clientId: '',
   autoSubmit: false,
   reviewerEdit: true,
   reviewerPushBack: true,
@@ -40,17 +43,70 @@ const textProjectTypes = [
   { value: 'Text Classification', description: 'Assign one or more labels to the entire text.' },
   { value: 'Sentiment Analysis', description: 'Label the sentiment of the text (Positive, Negative, Neutral).' },
   { value: 'Emotion Classification', description: 'Label emotional tone (Happy, Sad, Angry, Fear, Surprise).' },
-  { value: 'Span Annotation', description: 'General text span labeling (custom segments, custom labels).' },
+  
   { value: 'Relationship Annotation', description: 'Define relation between two annotated entities.' },
   { value: 'Grammar Correction', description: 'Mark errors and add corrected versions of sentences.' },
 ];
 
+const videoProjectTypes = [
+  { value: 'Video Object Tracking', description: 'Track objects across multiple video frames with bounding boxes.' },
+  { value: 'Video Classification', description: 'Assign one or more labels to the entire video.' },
+  { value: 'Action Recognition', description: 'Identify and label specific actions or events occurring in the video.' },
+];
+
 function AddProject() {
+  const { id } = useParams()
+  const isEditMode = Boolean(id)
   const [form, setForm] = useState(initialForm)
   const [clients, setClients] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (!isEditMode) return
+
+    const fetchProject = async () => {
+      const token = getToken()
+      if (!token) return
+
+      try {
+        // Fetch all projects to find the one to edit
+        const response = await fetch(`${API_BASE}/tasks/admin/projects`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (response.ok) {
+          const projects = await response.json()
+          const project = projects.find(p => p.id === Number(id))
+          if (project) {
+            setForm({
+              name: project.name,
+              description: project.description || '',
+              status: project.status || 'Active',
+              dataCategory: project.data_category || '',
+              projectType: project.project_type || '',
+              taskType: project.task_type || '',
+              taskTime: project.default_avg_task_time_minutes || '',
+              reviewTime: project.review_time_minutes || '',
+              maxUsers: project.max_users_per_task || '',
+              association: project.association || 'Admin',
+              clientId: project.client_id || '',
+              autoSubmit: project.auto_submit_task || false,
+              reviewerEdit: project.allow_reviewer_edit ?? true,
+              reviewerPushBack: project.allow_reviewer_push_back ?? true,
+              reviewerFeedback: project.allow_reviewer_feedback ?? true,
+              screenMode: project.reviewer_screen_mode || 'full',
+              guidelines: project.reviewer_guidelines || '',
+            })
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch project details', err)
+      }
+    }
+    fetchProject()
+  }, [isEditMode, id])
 
   useEffect(() => {
     const fetchClients = async () => {
@@ -79,6 +135,10 @@ function AddProject() {
         ...prev,
         [field]: type === 'checkbox' ? checked : value
       };
+      if (field === 'dataCategory') {
+        newState.projectType = '';
+        newState.taskType = '';
+      }
       // If projectType is being changed and it's not 'annotation', reset taskType.
       if (field === 'projectType' && value !== 'annotation' && prev.dataCategory !== 'image') {
         newState.taskType = '';
@@ -87,10 +147,6 @@ function AddProject() {
     });
   };
 
-  useEffect(() => {
-    setForm(prev => ({ ...prev, projectType: '', taskType: '' }));
-  }, [form.dataCategory]);
-
   // Reset client_id if association changes from 'Client'
   useEffect(() => {
     if (form.association !== 'Client') {
@@ -98,6 +154,7 @@ function AddProject() {
     }
   }, [form.association]);
 
+  
   const handleSubmit = async event => {
     event.preventDefault()
     const trimmedName = form.name.trim()
@@ -147,8 +204,12 @@ function AddProject() {
         reviewer_guidelines: form.guidelines.trim() ? form.guidelines.trim() : null,
       }
 
-      const response = await fetch(`${API_BASE}/tasks/admin/projects`, {
-        method: 'POST',
+      const url = isEditMode 
+        ? `${API_BASE}/tasks/admin/projects/${id}`
+        : `${API_BASE}/tasks/admin/projects`
+
+      const response = await fetch(url, {
+        method: isEditMode ? 'PUT' : 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
@@ -158,7 +219,7 @@ function AddProject() {
 
       if (!response.ok) {
         const payloadErr = await response.json().catch(() => ({}))
-        throw new Error(payloadErr.detail || 'Unable to create project.')
+        throw new Error(payloadErr.detail || `Unable to ${isEditMode ? 'update' : 'create'} project.`)
       }
 
       await response.json()
@@ -166,6 +227,28 @@ function AddProject() {
     } catch (err) {
       setError(err.message)
     } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleConfirmDelete = async () => {
+    setShowDeleteModal(false)
+    setLoading(true)
+    try {
+      const token = getToken()
+      if (!token) {
+        throw new Error('You need to log in again.')
+      }
+
+      const response = await fetch(`${API_BASE}/tasks/admin/projects/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      if (!response.ok) throw new Error('Failed to delete project.')
+      navigate('/projects')
+    } catch (err) {
+      setError(err.message)
       setLoading(false)
     }
   }
@@ -188,8 +271,8 @@ function AddProject() {
           </div>
 
           <div className="space-y-2">
-            <h1 className="text-2xl font-semibold">Let's create a new project!</h1>
-            <p className="text-slate-500">Configure a new project with reviewer controls and timing defaults.</p>
+            <h1 className="text-2xl font-semibold">{isEditMode ? 'Edit Project' : "Let's create a new project!"}</h1>
+            <p className="text-slate-500">{isEditMode ? 'Update project details and settings.' : 'Configure a new project with reviewer controls and timing defaults.'}</p>
           </div>
 
           {error ? (
@@ -280,6 +363,17 @@ function AddProject() {
                             <div className="hidden text-sm text-slate-600 group-data-[focus]:block">{type.description}</div>
                           </ListboxOption>
                         ))
+                      ) : form.dataCategory === 'video' ? (
+                        videoProjectTypes.map(type => (
+                          <ListboxOption
+                            key={type.value}
+                            value={type.value}
+                            className="group flex cursor-default items-center gap-2 rounded-lg py-1.5 px-3 select-none data-[focus]:bg-slate-100 min-h-[36px]"
+                          >
+                            <div className="text-sm text-slate-900 group-data-[focus]:hidden">{type.value}</div>
+                            <div className="hidden text-sm text-slate-600 group-data-[focus]:block">{type.description}</div>
+                          </ListboxOption>
+                        ))
                       ) : (
                         <>
                           <ListboxOption value="annotation" className="group flex cursor-default items-center gap-2 rounded-lg py-1.5 px-3 select-none data-[focus]:bg-slate-100 min-h-[36px]">
@@ -342,7 +436,7 @@ function AddProject() {
                       className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-slate-400 focus:outline-none"
                     />
                   )}
-                </div> */}
+                </div> 
                 <div className="md:col-span-1">
                   <label className="block text-sm font-medium text-slate-600">Task Time (in mins)</label>
                   <input
@@ -375,11 +469,11 @@ function AddProject() {
                     placeholder="Enter max users"
                     className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-slate-400 focus:outline-none"
                   />
-                </div>
+                </div>*/}
               </div>
             </section>
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+           {/*  <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-slate-800">Task Automation</h2>
                 <label className="inline-flex items-center gap-2 text-sm text-slate-600">
@@ -393,9 +487,9 @@ function AddProject() {
                 </label>
               </div>
               <p className="text-xs text-slate-500">Automatically submits tasks upon completion when enabled.</p>
-            </section>
+            </section> */}
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+            {/* <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
               <h2 className="text-lg font-semibold text-slate-800">Reviewer Control</h2>
               <div className="grid gap-3 md:grid-cols-3">
                 <label className="inline-flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
@@ -474,26 +568,48 @@ function AddProject() {
                 placeholder="Add reviewer guidelines or helpful context."
                 className="mt-4 w-full resize-none rounded-lg border border-slate-200 px-3 py-2 focus:border-slate-400 focus:outline-none"
               />
-            </section>
+            </section> */}
 
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => navigate('/projects')}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
-                disabled={loading}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
-                disabled={loading}
-              >
-                {loading ? 'Saving…' : 'Save Project'}
-              </button>
+            <div className="flex items-center justify-between">
+              {isEditMode ? (
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteModal(true)}
+                  className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100 disabled:opacity-60"
+                  disabled={loading}
+                >
+                  <Trash2 size={16} />
+                  Delete Project
+                </button>
+              ) : (
+                <div />
+              )}
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => navigate('/projects')}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+                  disabled={loading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+                  disabled={loading}
+                >
+                  <Save size={16} />
+                  {loading ? 'Saving…' : isEditMode ? 'Update Project' : 'Save Project'}
+                </button>
+              </div>
             </div>
           </form>
+          <DeleteConfirmationModal
+            isOpen={showDeleteModal}
+            onClose={() => setShowDeleteModal(false)}
+            onConfirm={handleConfirmDelete}
+            projectName={form.name}
+          />
         </div>
       </main>
     </div>

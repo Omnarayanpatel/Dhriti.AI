@@ -1,15 +1,23 @@
 from typing import List, Optional, Union
 
 from pydantic import BaseModel
+from .project import ProjectSummary
 
 
-class DashboardStat(BaseModel):
-    id: str
-    label: str
-    value: Union[int, float, str]
-    trend: Optional[str] = None
-    icon: Optional[str] = None
+class TeamMember(BaseModel):
+    id: int
+    name: str
+    avatar_url: Optional[str] = None
+    role: str
 
 
 class DashboardSummary(BaseModel):
-    stats: List[DashboardStat]
+    active_projects: int
+    ended_projects: int
+    running_projects: int
+    pending_projects: int
+    team_members: List[TeamMember]
+    recent_projects: List[ProjectSummary]
+
+    class Config:
+        from_attributes = True

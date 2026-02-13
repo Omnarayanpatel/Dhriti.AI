@@ -20,8 +20,6 @@ from app.schemas.template_builder import (
     TemplateCreateRequest,
     TemplateField,
     TemplateResponse,
-    TemplateSourceDetail,
-    TemplateSourceSummary,
     TemplateTask,
     TemplateTasksResponse,
 )
@@ -92,43 +90,11 @@ def _collect_schema_from_rows(preview_rows: List[Dict[str, Any]]) -> List[Templa
     return [TemplateField(**payload) for payload in seen.values()]
 
 @router.get(
-    "/admin/template-sources",
-    response_model=List[TemplateSourceSummary],
-    summary="List imported Excel batches available for template binding",
-)
-def list_template_sources(
-    _: TokenData = Depends(require_admin),
-    db: Session = Depends(database.get_db),
-) -> List[TemplateSourceSummary]:
-    batches = (
-        db.query(ImportBatch)
-        .order_by(ImportBatch.created_at.desc())
-        .all()
-    )
-
-    summaries: List[TemplateSourceSummary] = []
-    for batch in batches:
-        schema = batch.excel_schema if isinstance(batch.excel_schema, list) else None
-        summaries.append(
-            TemplateSourceSummary(
-                batch_id=batch.id,
-                original_file=batch.original_file,
-                row_count=batch.row_count,
-                status=batch.status,
-                created_at=batch.created_at,
-                schema=schema,
-            )
-        )
-    return summaries
-
-
-@router.get(
-    "/admin/project-template-sources",
+    "/template-builder/projects",
     response_model=List[ProjectTemplateSourceSummary],
     summary="List projects with tasks available for template binding",
 )
 def list_project_template_sources(
-    _: TokenData = Depends(require_admin),
     db: Session = Depends(database.get_db),
 ) -> List[ProjectTemplateSourceSummary]:
     task_stats_subquery = (
@@ -168,67 +134,12 @@ def list_project_template_sources(
 
 
 @router.get(
-    "/admin/template-sources/{batch_id}",
-    response_model=TemplateSourceDetail,
-    summary="Fetch schema and sample rows for an imported Excel batch",
-)
-def get_template_source(
-    batch_id: UUID,
-    _: TokenData = Depends(require_admin),
-    db: Session = Depends(database.get_db),
-) -> TemplateSourceDetail:
-    batch: Optional[ImportBatch] = (
-        db.query(ImportBatch)
-        .filter(ImportBatch.id == batch_id)
-        .first()
-    )
-    if not batch:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Batch not found")
-    if batch.status != "COMPLETED":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Batch import is not completed yet")
-
-    schema = batch.excel_schema if isinstance(batch.excel_schema, list) else []
-
-    preview_tasks: List[ImportedTask] = (
-        db.query(ImportedTask)
-        .filter(ImportedTask.batch_id == batch_id)
-        .order_by(ImportedTask.created_at.asc())
-        .limit(5)
-        .all()
-    )
-
-    preview_rows = []
-    for task in preview_tasks:
-        if isinstance(task.payload, dict):
-            preview_rows.append(task.payload)
-        else:
-            preview_rows.append(
-                {
-                    "task_name": task.task_name,
-                    "file_name": task.file_name,
-                    "s3_url": task.s3_url,
-                }
-            )
-
-    return TemplateSourceDetail(
-        batch_id=batch.id,
-        original_file=batch.original_file,
-        row_count=batch.row_count,
-        status=batch.status,
-        created_at=batch.created_at,
-        schema=schema,
-        preview_rows=preview_rows,
-    )
-
-
-@router.get(
-    "/admin/project-template-sources/{project_id}",
+    "/template-builder/projects/{project_id}",
     response_model=ProjectTemplateSourceDetail,
     summary="Fetch schema and sample rows for project tasks",
 )
 def get_project_template_source(
     project_id: int,
-    _: TokenData = Depends(require_admin),
     db: Session = Depends(database.get_db),
 ) -> ProjectTemplateSourceDetail:
     project: Optional[Project] = db.query(Project).filter(Project.id == project_id).first()
@@ -279,7 +190,7 @@ def get_project_template_source(
 
 
 @router.post(
-    "/admin/templates",
+    "/template-builder/templates",
     response_model=TemplateResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create or save a project template",
@@ -339,12 +250,11 @@ def create_template(
 
 
 @router.get(
-    "/admin/templates",
+    "/template-builder/templates",
     response_model=List[TemplateResponse],
     summary="List saved project templates",
 )
 def list_templates(
-    _: TokenData = Depends(require_admin),
     db: Session = Depends(database.get_db),
 ) -> List[TemplateResponse]:
     templates = db.query(ProjectTemplate).order_by(ProjectTemplate.created_at.desc()).all()
